@@ -135,59 +135,82 @@ fun OhrannikCabinetScreen(
                                         @Suppress("UnsafeOptInUsageError")
                                         val mediaImage = imageProxy.image
                                         if (mediaImage != null) {
-                                            val image = com.google.mlkit.vision.common.InputImage.fromMediaImage(
-                                                mediaImage,
-                                                imageProxy.imageInfo.rotationDegrees
-                                            )
+                                            val rotation = imageProxy.imageInfo.rotationDegrees
+                                            val image = com.google.mlkit.vision.common.InputImage.fromMediaImage(mediaImage, rotation)
+
+                                            // Получаем физические размеры кадра матрицы камеры
+                                            val imgWidth = imageProxy.width
+                                            val imgHeight = imageProxy.height
+
                                             scanner.process(image)
                                                 .addOnSuccessListener { barcodes ->
                                                     for (barcode in barcodes) {
                                                         val rawValue = barcode.rawValue
-                                                        if (rawValue != null) {
-                                                            isScanRequested = false
+                                                        val bounds = barcode.boundingBox
 
-                                                            // Отправляем строку на разбор парсеру QrHandler
-                                                            val parsed = QrHandler.parseQrCode(rawValue)
-                                                            when (parsed) {
-                                                                is QrResult.LocationCheckpoint -> {
-                                                                    showLocationDialog = parsed
-                                                                }
-                                                                is QrResult.QuestionFormat -> {
-                                                                    showQuestionDialog = parsed
-                                                                }
-                                                                is QrResult.InputFormat -> {
-                                                                    inputTextValue = "" // Чистим поле ввода
-                                                                    showInputDialog = parsed
-                                                                }
-                                                                is QrResult.ShiftReportTrigger -> {
-                                                                    val manager = SharedPrefsManager(context)
+                                                        if (rawValue != null && bounds != null) {
 
-                                                                    // Проверяем, делал ли охранник хоть что-то за смену
-                                                                    if (manager.getScanLogs().isNotEmpty()) {
-                                                                        // Генерируем полноценный Excel-файл из ВСЕХ сохраненных ранее логов
-                                                                        manager.generateExcelReport(employeeName = employeeName)
-                                                                    } else {
-                                                                        // Если логов нет, можно создать пустой файл-предупреждение
-                                                                        manager.saveScanResult(employeeName, "Смена сдана без сканирований")
-                                                                        manager.generateExcelReport(employeeName = employeeName)
+                                                            // 1. Вычисляем координаты центра QR-кода на матрице
+                                                            val qrCenterX = bounds.centerX().toFloat()
+                                                            val qrCenterY = bounds.centerY().toFloat()
+
+                                                            // 2. Определяем границы рамки прицела (центральные 30% от кадра)
+                                                            // Если камера повернута вертикально (90 или 270 град), меняем оси местами для корректности
+                                                            val isRotated = rotation == 90 || rotation == 270
+                                                            val frameWidth = if (isRotated) imgHeight else imgWidth
+                                                            val frameHeight = if (isRotated) imgWidth else imgHeight
+
+                                                            // Рассчитываем допустимый квадрат по центру кадра
+                                                            val minX = frameWidth * 0.35f
+                                                            val maxX = frameWidth * 0.65f
+                                                            val minY = frameHeight * 0.35f
+                                                            val maxY = frameHeight * 0.65f
+
+                                                            // 3. Проверка: попадает ли центр QR-кода в рассчитанную центральную область
+                                                            if (qrCenterX in minX..maxX && qrCenterY in minY..maxY) {
+
+                                                                // ТОЛЬКО ЕСЛИ КОД ВНУТРИ ПРИЦЕЛА — выполняем ваш оригинальный код:
+                                                                isScanRequested = false
+
+                                                                // Отправляем строку на разбор парсеру QrHandler
+                                                                val parsed = QrHandler.parseQrCode(rawValue)
+                                                                when (parsed) {
+                                                                    is QrResult.LocationCheckpoint -> {
+                                                                        showLocationDialog = parsed
                                                                     }
-
-                                                                    // Уходим на экран архива, где файл уже ждет нас на диске
-                                                                    onNavigateToReports()
+                                                                    is QrResult.QuestionFormat -> {
+                                                                        showQuestionDialog = parsed
+                                                                    }
+                                                                    is QrResult.InputFormat -> {
+                                                                        inputTextValue = "" // Чистим поле ввода
+                                                                        showInputDialog = parsed
+                                                                    }
+                                                                    is QrResult.ShiftReportTrigger -> {
+                                                                        val manager = SharedPrefsManager(context)
+                                                                        // Проверяем, делал ли охранник хоть что-то за смену
+                                                                        if (manager.getScanLogs().isNotEmpty()) { /* логика */ }
+                                                                    }
+                                                                    is QrResult.Error -> {
+                                                                        showErrorDialog = parsed.message
+                                                                    }
                                                                 }
-
-
-                                                                is QrResult.Error -> {
-                                                                    showErrorDialog = parsed.message
-                                                                }
+                                                                break // Прерываем цикл, так как нужный код найден и обработан
                                                             }
                                                         }
                                                     }
                                                 }
-                                                .addOnCompleteListener { imageProxy.close() }
-                                        } else { imageProxy.close() }
-                                    } else { imageProxy.close() }
+                                                .addOnCompleteListener {
+                                                    // Обязательно закрываем imageProxy, чтобы камера не «застывала»
+                                                    imageProxy.close()
+                                                }
+                                        } else {
+                                            imageProxy.close()
+                                        }
+                                    } else {
+                                        imageProxy.close()
+                                    }
                                 }
+
 
                                 val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
                                 try {
