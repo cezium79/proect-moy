@@ -10,11 +10,11 @@ sealed class QrResult {
     data class QuestionFormat(val text: String, val answers: List<String>) : QrResult()
     data class InputFormat(val title: String) : QrResult()
     data class LocationCheckpoint(val name: String, val timestamp: String) : QrResult()
-    object ShiftReportTrigger : QrResult() // Новый тип для вызова отчета
+    object ShiftReportTrigger : QrResult() // Тип для вызова отчета
     data class Error(val message: String) : QrResult()
 }
 
-// Перенесено СЮДА (вне QrResult), чтобы класс был доступен напрямую
+// Модель данных записи для отчета
 data class CheckpointEntry(
     val type: String,
     val titleOrLocation: String,
@@ -24,44 +24,57 @@ data class CheckpointEntry(
 
 object QrHandler {
 
-    // Добавлен пробел после private (было privateval)
+    // Единый формат даты для всего класса
+    private val dateFormat = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.US)
+
+    // Список логов в памяти устройства
     private val shiftLogs = mutableListOf<CheckpointEntry>()
 
     fun parseQrCode(rawText: String): QrResult {
         val trimmed = rawText.trim()
 
-        // Проверка на команду вызова отчета о смене
-        if (trimmed.contains("отчет о смене") || trimmed == "отчет о смене") {
+        // 1. Проверка на точную команду вызова отчета (сработает мгновенно)
+        if (trimmed.equals("отчет о смене", ignoreCase = true)) {
             return QrResult.ShiftReportTrigger
         }
 
-        if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-            return try {
-                val json = JSONObject(trimmed)
+        // 2. Строгая проверка: если это не JSON, сразу игнорируем любой другой простой текст
+        if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+            return QrResult.Error("Игнорируется: это не рабочий QR-код системы")
+        }
 
-                if (json.has("action") && json.getString("action") == "question") {
+        return try {
+            val json = JSONObject(trimmed)
+
+            // Проверяем тип JSON-документа
+            when {
+                // Обработчик для валидных точек контроля (чекпоинтов)
+                json.has("type") && json.getString("type") == "checkpoint" -> {
+                    val name = json.getString("name")
+                    val currentTime = dateFormat.format(Date())
+                    QrResult.LocationCheckpoint(name = name, timestamp = currentTime)
+                }
+
+                // Обработчик вопросов
+                json.has("action") && json.getString("action") == "question" -> {
                     val text = json.getString("text")
                     val jsonArray = json.getJSONArray("answers")
-                    val answersList = mutableListOf<String>()
-                    for (i in 0 until jsonArray.length()) {
-                        answersList.add(jsonArray.getString(i))
-                    }
+                    val answersList = List(jsonArray.length()) { jsonArray.getString(it) }
                     QrResult.QuestionFormat(text, answersList)
+                }
 
-                } else if (json.has("type") && json.getString("type") == "input") {
+                // Обработчик полей ввода
+                json.has("type") && json.getString("type") == "input" -> {
                     val title = json.getString("title")
                     QrResult.InputFormat(title)
-
-                } else {
-                    QrResult.Error("Неизвестный формат JSON")
                 }
-            } catch (e: Exception) {
-                QrResult.Error("Ошибка синтаксиса JSON: ${e.localizedMessage}")
+
+                // Если JSON корректный, но поля неизвестны
+                else -> QrResult.Error("Игнорируется: неизвестный тип данных")
             }
-        } else {
-            val currentTime =
-                SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()).format(Date())
-            return QrResult.LocationCheckpoint(name = trimmed, timestamp = currentTime)
+        } catch (e: Exception) {
+            // Если внутри скобок оказался сломанный текст
+            QrResult.Error("Игнорируется: невалидный JSON-формат")
         }
     }
 
@@ -79,8 +92,7 @@ object QrHandler {
 
     // Сохранение ответов на вопросы или введенных показаний счетчиков (Типы 1 и 2)
     fun saveUserResponse(type: String, title: String, response: String) {
-        val currentTime =
-            SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()).format(Date())
+        val currentTime = dateFormat.format(Date()) // Исправлено на использование dateFormat
         shiftLogs.add(
             CheckpointEntry(
                 type = type,
@@ -98,14 +110,7 @@ object QrHandler {
         }
         val builder = StringBuilder()
         builder.append("=== ОТЧЕТ О СМЕНЕ ОХРАНЫ ===\n")
-        builder.append(
-            "Сгенерирован: ${
-                SimpleDateFormat(
-                    "dd.MM.yyyy HH:mm:ss",
-                    Locale.getDefault()
-                ).format(Date())
-            }\n"
-        )
+        builder.append("Сгенерирован: ${dateFormat.format(Date())}\n") // Исправлено на использование dateFormat
         builder.append("----------------------------------------\n")
         shiftLogs.forEachIndexed { index, entry ->
             builder.append("${index + 1}. [${entry.timestamp}]\n")

@@ -55,7 +55,20 @@ fun AppNavigation() {
 
     when (currentScreen) {
         "privet" -> PrivetScreen(
-            onNavigateToOhrannik = { currentScreen = "ohrannik" },
+            onNavigateToOhrannik = {
+                // ИНТЕЛЛЕКТУАЛЬНЫЙ ПЕРЕХВАТ НА СТАРТЕ:
+                // Смотрим, есть ли в системе вообще чья-то запущенная смена
+                val activeGuardName = prefsManager.getActiveShiftEmployeeName()
+
+                if (activeGuardName.isNotEmpty()) {
+                    // Смена идет! Игнорируем выбор фамилий, подставляем имя и сразу шлем в ShiftControl
+                    selectedEmployeeName = activeGuardName
+                    currentScreen = "shift_control"
+                } else {
+                    // Смен нет, всё как обычно — отправляем выбирать фамилию
+                    currentScreen = "ohrannik"
+                }
+            },
             onNavigateToAdministrator = { currentScreen = "admin" }
         )
 
@@ -63,20 +76,50 @@ fun AppNavigation() {
             employees = employeeList,
             onSelectEmployee = { employee ->
                 selectedEmployeeName = employee.name
-                currentScreen = "ohrannik_cabinet"
+
+                // УМНЫЙ ПЕРЕХВАТ: Если смена у этого сотрудника уже активна — сразу шлем в камеру
+                if (prefsManager.isShiftActiveFor(employee.name)) {
+                    currentScreen = "ohrannik_cabinet"
+                } else {
+                    // Если смены нет — отправляем на экран открытия смены (Старт/Стоп)
+                    currentScreen = "shift_control"
+                }
             },
             onBack = { currentScreen = "privet" }
         )
 
+
+
+        "shift_control" -> OhrannikShiftControlScreen(
+            employeeName = selectedEmployeeName,
+            onStartShiftSuccess = {
+                currentScreen = "ohrannik_cabinet" // После СТАРТа уходим в камеру
+            },
+            onContinueShift = {
+                currentScreen = "ohrannik_cabinet" // При нажатии ПРОДОЛЖИТЬ уходим в камеру
+            },
+            onShiftClosedSuccess = {
+                previousScreenWasAdmin = false
+                currentScreen = "spisok_otchetov" // После СТОПа уходим в отчеты
+            },
+            onBack = {
+                // Кнопка "Назад" с этого экрана теперь ВСЕГДА выбрасывает в окно privet
+                currentScreen = "privet"
+            }
+        )
+
         "ohrannik_cabinet" -> OhrannikCabinetScreen(
             employeeName = selectedEmployeeName,
-            onLogout = { currentScreen = "ohrannik" },
+            onLogout = {
+                // Из окна камеры при нажатии "Выход/Назад" выбрасывает СТРОГО в окно privet
+                currentScreen = "privet"
+            },
             onNavigateToReports = {
-                previousScreenWasAdmin = false // <-- ЗАПОМИНАЕМ, ЧТО ПЕРЕШЕЛ ОХРАННИК
-                QrHandler.generateFullReport() // Ваша логика генерации отчета
+                previousScreenWasAdmin = false
                 currentScreen = "spisok_otchetov"
             }
         )
+
 
 
 
@@ -84,20 +127,41 @@ fun AppNavigation() {
         "admin" -> AdministratorScreen(
             onNavigateToEmployeeList = { currentScreen = "employee_list" },
             onNavigateToSpisokOtchetov = {
-                previousScreenWasAdmin = true // <-- ЗАПОМИНАЕМ, ЧТО ПЕРЕШЕЛ АДМИН
+                previousScreenWasAdmin = true
                 currentScreen = "spisok_otchetov"
             },
             onNavigateToArchive = { currentScreen = "spisok_otchetov" },
+            onNavigateToRoutes = { currentScreen = "routes" }, // <-- ДОБАВЛЕНО
             onBack = { currentScreen = "privet" }
+        )
+
+        // Экран управления маршрутами (Новый блок)
+        "routes" -> MarshrutiScreen(
+            onBack = { currentScreen = "admin" }
         )
 
         // Дополнительный экран: Список охранников
         "employee_list" -> EmployeeListScreen(
             employees = employeeList,
-            onAddEmployee = { name, position -> currentScreen = "add_employee" },     // <-- ДОБАВИТЬ
-            onDeleteEmployee = { currentScreen = "delete_employee" }, // <-- ДОБАВИТЬ
-            onEditEmployee = { employee, param1, param2 ->
-                currentScreen = "edit_employee"
+            onAddEmployee = { name, position ->
+                // Создаем и добавляем нового сотрудника прямо в список
+                val newEmployee = Employee(name = name, role = position)
+                employeeList.add(newEmployee)
+                // Сохраняем обновленный список в SharedPreferences
+                prefsManager.saveEmployees(employeeList.toList())
+            },
+            onDeleteEmployee = { employee ->
+                // Удаляем сотрудника из списка и обновляем хранилище
+                employeeList.remove(employee)
+                prefsManager.saveEmployees(employeeList.toList())
+            },
+            onEditEmployee = { employee, newName, newPosition ->
+                // Находим редактируемого сотрудника и обновляем его поля
+                val index = employeeList.indexOf(employee)
+                if (index != -1) {
+                    employeeList[index] = employee.copy(name = newName, role = newPosition)
+                    prefsManager.saveEmployees(employeeList.toList())
+                }
             },
             onBack = { currentScreen = "admin" }
         )

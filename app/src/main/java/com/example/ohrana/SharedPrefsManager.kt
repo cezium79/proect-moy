@@ -12,18 +12,119 @@ data class QrScanRecord(val employeeName: String, val time: String, val qrConten
 class SharedPrefsManager(private val context: Context) {
     private val prefs = context.getSharedPreferences("ohrana_prefs", Context.MODE_PRIVATE)
 
+    // Формат даты вынесен в константу для единообразия логов
+    private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+    // --- МЕТОДЫ УПРАВЛЕНИЯ СМЕНОЙ ОХРАННИКА ---
+
+    // Начать новую смену (сохраняем имя и время старта)
+    fun startNewShift(employeeName: String, startTime: String) {
+        prefs.edit().apply {
+            putString("active_shift_employee", employeeName)
+            putString("active_shift_start_time", startTime)
+            putBoolean("active_shift_is_running", true)
+            apply()
+        }
+    }
+
+    // Проверить, идет ли сейчас активная смена у конкретного сотрудника
+    fun isShiftActiveFor(employeeName: String): Boolean {
+        val savedName = prefs.getString("active_shift_employee", "") ?: ""
+        val isRunning = prefs.getBoolean("active_shift_is_running", false)
+        return isRunning && savedName == employeeName
+    }
+
+    // Получить время начала текущей смены
+    fun getShiftStartTime(): String = prefs.getString("active_shift_start_time", "-") ?: "-"
+
+    // Закрыть смену
+    fun closeCurrentShift() {
+        prefs.edit().apply {
+            putBoolean("active_shift_is_running", false)
+            remove("active_shift_employee")
+            remove("active_shift_start_time")
+            apply()
+        }
+    }
+    // Получить имя сотрудника, у которого сейчас открыта смена (чтобы сделать автопереход)
+    fun getActiveShiftEmployeeName(): String {
+        val isRunning = prefs.getBoolean("active_shift_is_running", false)
+        return if (isRunning) {
+            prefs.getString("active_shift_employee", "") ?: ""
+        } else {
+            ""
+        }
+    }
+
+
+// --- УПРАВЛЕНИЕ АКТИВНЫМ ОБХОДОМ ---
+
+    // Запустить конкретный обход по его номеру (индексу)
+    fun startRound(roundIndex: Int, startTime: String) {
+        prefs.edit().apply {
+            putInt("active_shift_current_round_index", roundIndex)
+            putString("round_${roundIndex}_start_time", startTime)
+            putString("round_${roundIndex}_scanned_points", "") // Очищаем отсканированные точки для этого обхода
+            apply()
+        }
+    }
+
+    // Получить индекс обхода, который выполняется прямо сейчас (-1 означает, что никакой обход не запущен)
+    fun getActiveRoundIndex(): Int = prefs.getInt("active_shift_current_round_index", -1)
+
+    // Получить время начала конкретного обхода
+    fun getRoundStartTime(roundIndex: Int): String = prefs.getString("round_${roundIndex}_start_time", "-") ?: "-"
+
+
     // (Ваши старые методы loadEmployees и saveEmployees остаются здесь без изменений)
-    fun loadEmployees(): List<Employee> { /* ... */ return emptyList() }
-    fun saveEmployees(list: List<Employee>) { /* ... */ }
+    fun loadEmployees(): List<Employee> {
+        // Здесь ваша оригинальная логика загрузки сотрудников
+        return emptyList()
+    }
+    // --- СОХРАНЕНИЕ НАСТРОЕК МАРШРУТА И РАСПИСАНИЯ ---
+    fun saveRouteSettings(roundsCount: Int, times: List<String>, tolerance: String, checkpoints: List<String>) {
+        prefs.edit().apply {
+            putInt("route_rounds_count", roundsCount)
+            putString("route_times", times.joinToString(","))
+            putString("route_tolerance", tolerance)
+            putString("route_checkpoints", checkpoints.joinToString(","))
+            apply()
+        }
+    }
+
+    fun loadRouteRoundsCount(): Int = prefs.getInt("route_rounds_count", 3)
+
+    fun loadRouteTimes(): List<String> {
+        val raw = prefs.getString("route_times", "") ?: ""
+        if (raw.isEmpty()) return listOf("08:00", "14:00", "20:00") // Базовые значения
+        return raw.split(",")
+    }
+
+    fun loadRouteTolerance(): String = prefs.getString("route_tolerance", "15") ?: "15"
+
+    fun loadRouteCheckpoints(): List<String> {
+        val raw = prefs.getString("route_checkpoints", "") ?: ""
+        if (raw.isEmpty()) return listOf("Точка_Вход", "Точка_Склад_1", "Точка_Забор") // Базовые значения
+        return raw.split(",")
+    }
+
+
+    fun saveEmployees(list: List<Employee>) {
+        // Здесь ваша оригинальная логика сохранения сотрудников
+    }
 
     // Сохранение логов сканирования в SharedPrefs (в виде простой строки для упрощения)
     fun saveScanResult(employeeName: String, qrContent: String) {
-        val currentTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+        val currentTime = dateFormat.format(Date())
         val currentLogs = prefs.getString("qr_logs", "") ?: ""
+
+        // Очищаем контент от точек с запятой и переносов, чтобы не ломать структуру CSV таблицы
+        val safeContent = qrContent.replace(";", " ").replace("\n", " ")
+        val logLine = "$employeeName;$currentTime;$safeContent"
+
         val newLogs = if (currentLogs.isEmpty()) {
-            "$employeeName;$currentTime;$qrContent"
+            logLine
         } else {
-            "$currentLogs\n$employeeName;$currentTime;$qrContent"
+            "$currentLogs\n$logLine"
         }
         prefs.edit().putString("qr_logs", newLogs).apply()
     }
@@ -47,8 +148,8 @@ class SharedPrefsManager(private val context: Context) {
     // Генерация CSV отчета для Excel
     fun generateExcelReport(employeeName: String): File? {
         val logs = getScanLogs()
-        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-        val fileName = "Отчет_${employeeName.replace(" ", "_")}_$timestamp.csv"
+        val fileTimestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val fileName = "Отчет_${employeeName.replace(" ", "_")}_$fileTimestamp.csv"
 
         // Создаем файл во внутреннем хранилище (доступно для просмотра внутри приложения)
         val reportsDir = File(context.filesDir, "reports")
@@ -57,7 +158,7 @@ class SharedPrefsManager(private val context: Context) {
         val file = File(reportsDir, fileName)
 
         try {
-            // ИСПРАВЛЕНИЕ: открываем поток записи строго в кодировке UTF-8
+            // Открываем поток записи строго в кодировке UTF-8
             file.bufferedWriter(charset = Charsets.UTF_8).use { writer ->
 
                 // Записываем правильный UTF-8 BOM маркер, чтобы Excel сразу понял русский язык
@@ -78,7 +179,6 @@ class SharedPrefsManager(private val context: Context) {
             e.printStackTrace()
             return null
         }
-
     }
 
     // Получить список всех файлов отчетов
@@ -87,5 +187,3 @@ class SharedPrefsManager(private val context: Context) {
         return reportsDir.listFiles()?.filter { it.isFile && it.extension == "csv" }?.toList() ?: emptyList()
     }
 }
-
-

@@ -321,19 +321,20 @@ fun OhrannikCabinetScreen(
                 Button(
                     onClick = {
                         if (inputTextValue.isNotBlank()) {
-                            // Было:
-                            QrHandler.saveUserResponse(type = "Ввод данных", title = result.title, response = inputTextValue)
-// НАДО СДЕЛАТЬ:
                             val logText = "Показания: ${result.title} -> Введено: $inputTextValue"
                             manager.saveScanResult(employeeName = employeeName, qrContent = logText)
 
+                            inputTextValue = "" // ОЧИСТКА ПОЛЯ: Сбрасываем текст, чтобы поле было пустым в следующий раз
                             showInputDialog = null
                         }
                     }
                 ) { Text("Сохранить") }
             },
             dismissButton = {
-                TextButton(onClick = { showInputDialog = null }) { Text("Отмена") }
+                TextButton(onClick = {
+                    inputTextValue = "" // Очищаем поле при отмене
+                    showInputDialog = null
+                }) { Text("Отмена") }
             }
         )
     }

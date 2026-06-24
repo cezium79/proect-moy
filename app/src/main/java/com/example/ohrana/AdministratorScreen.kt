@@ -16,6 +16,7 @@ fun AdministratorScreen(
     onNavigateToEmployeeList: () -> Unit,
     onNavigateToArchive: () -> Unit, // Новый обработчик для перехода в архив
     onNavigateToSpisokOtchetov: () -> Unit,
+    onNavigateToRoutes: () -> Unit,
     onBack: () -> Unit
 ) {
     Scaffold(
@@ -43,6 +44,13 @@ fun AdministratorScreen(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp).height(56.dp)
             ) {
                 Text("Редактировать список сотрудников", fontSize = 16.sp)
+            }
+            Button(
+                onClick = onNavigateToRoutes,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp).height(56.dp)
+            ) {
+                Text("Редактирование маршрутов", fontSize = 16.sp)
             }
 
             // Новая кнопка "Архив"
