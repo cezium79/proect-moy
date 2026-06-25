@@ -186,57 +186,36 @@ class SharedPrefsManager(private val context: Context) {
         val reportsDir = File(context.filesDir, "reports")
         return reportsDir.listFiles()?.filter { it.isFile && it.extension == "csv" }?.toList() ?: emptyList()
     }
-    // Сохранение состояния переключателя (Вкл/Игнор) для конкретного обхода
-    fun saveAlarmEnabledState(roundIndex: Int, isEnabled: Boolean) {
-        sharedPreferences.edit().putBoolean("ROUND_ALARM_ENABLED_$roundIndex", isEnabled).apply()
-    }
 
-    // Загрузка состояния переключателя (по умолчанию true — будильник включен)
-    fun loadAlarmEnabledState(roundIndex: Int): Boolean {
-        return sharedPreferences.getBoolean("ROUND_ALARM_ENABLED_$roundIndex", true)
-    }
+    // ==================================================
+    // ⏰ МЕТОДЫ ДЛЯ РАБОТЫ С БУДИЛЬНИКАМИ (RouteAlarm)
+    // ==================================================
 
-    // Перезапись всех временных интервалов для обходов
-    fun saveRouteTimes(times: List<String>) {
-        // Преобразуем список в упорядоченную строку-массив или набор строк
-        val timesSet = times.mapIndexed { index, time -> "$index:$time" }.toSet()
-        sharedPreferences.edit().putStringSet("ROUND_TIMES_SET", timesSet).apply()
-    }
-
-    // Загрузка сохраненного расписания обходов с восстановлением их порядка
-    fun loadRouteTimes(): List<String> {
-        val timesSet = sharedPreferences.getStringSet("ROUND_TIMES_SET", emptySet()) ?: emptySet()
-        if (timesSet.isEmpty()) return emptyList()
-
-        // Восстанавливаем элементы по их сохраненному индексу, чтобы порядок не нарушался
-        return timesSet
-            .mapNotNull { item ->
-                val parts = item.split(":", limit = 2)
-                val index = parts.getOrNull(0)?.toIntOrNull()
-                val time = parts.getOrNull(1)
-                if (index != null && time != null) index to time else null
-            }
-            .sortedBy { it.first }
-            .map { it.second }
-    }
-    // 2. 🔥 ДОБАВЛЯЕМ НОВУЮ ФУНКЦИЮ С ДРУГИМ ИМЕНЕМ (Специально для наших будильников)
+    /**
+     * Сохраняет список настроенных будильников в память устройства
+     */
     fun saveRouteAlarms(alarms: List<RouteAlarm>) {
+        val localPrefs = context.getSharedPreferences("OhranaPrefs", Context.MODE_PRIVATE)
         val stringSet = alarms.map { "${it.id}|${it.time}|${it.isEnabled}" }.toSet()
-        sharedPrefs.edit().putStringSet("route_alarms_key", stringSet).apply()
+        localPrefs.edit().putStringSet("route_alarms_key", stringSet).apply()
     }
 
+    /**
+     * Загружает сохраненный список будильников. Если данных нет — вернет пустой список
+     */
     fun loadRouteAlarms(): List<RouteAlarm> {
-        val stringSet = sharedPrefs.getStringSet("route_alarms_key", null) ?: return emptyList()
+        val localPrefs = context.getSharedPreferences("OhranaPrefs", Context.MODE_PRIVATE)
+        val stringSet = localPrefs.getStringSet("route_alarms_key", null) ?: return emptyList()
         return stringSet.mapNotNull { savedString ->
             val parts = savedString.split("|")
             if (parts.size == 3) {
-                RouteAlarm(
-                    id = parts[0].toIntOrNull() ?: return@mapNotNull null,
-                    time = parts[1],
-                    isEnabled = parts[2].toBooleanStrictOrNull() ?: true
-                )
-            } else null
-        }.sortedBy { it.id } // Сортируем по ID, чтобы порядок не нарушался
+                val id = parts[0].toIntOrNull() ?: return@mapNotNull null
+                val time = parts[1]
+                val isEnabled = parts[2].toBooleanStrictOrNull() ?: true
+                RouteAlarm(id = id, time = time, isEnabled = isEnabled)
+            } else {
+                null
+            }
+        }.sortedBy { it.id }
     }
-
 }

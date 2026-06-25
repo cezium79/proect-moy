@@ -46,7 +46,7 @@ class AlarmScheduler(private val context: Context) {
 
         val intent = Intent(context, AlarmReceiver::class.java).apply {
             putExtra("ALARM_ID", alarm.id)
-            putExtra("ALARM_TIME", alarm.time)
+            putExtra("ALARM_TIME", alarm.time as String) // Жестко передаем как String
         }
 
         // Уникальный PendingIntent для каждого ID маршрута

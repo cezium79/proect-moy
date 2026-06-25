@@ -3,29 +3,38 @@ package com.example.ohrana
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.widget.Toast
+import android.os.Build
 
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        val alarmId = intent.getIntExtra("ALARM_ID", -1)
-        val alarmTime = intent.getSerializableExtra("ALARM_TIME") ?: "00:00"
-
-        // ТУТ БУДЕТ ВАША ЛОГИКА (Например, запуск экрана тревоги или отправка Push-уведомления)
-        // Сейчас для теста выведем Toast и запустим стандартную вибрацию/рингтон, если нужно
-        Toast.makeText(
-            context,
-            "⏰ СРАБОТАЛ БУДИЛЬНИК! Время обхода №$alarmId ($alarmTime)",
-            Toast.LENGTH_LONG
-        ).show()
-
-        // Пример: Можно открыть OhrannikScreen при срабатывании
-        /*
-        val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        // Проверяем, не нажал ли пользователь кнопку выключения на уведомлении
+        if (intent.action == "STOP_ALARM") {
+            val serviceIntent = Intent(context, AlarmService::class.java)
+            context.stopService(serviceIntent)
+            return
         }
-        context.startActivity(launchIntent)
-        */
+
+        val alarmId = intent.getIntExtra("ALARM_ID", -1)
+
+        // Корректно и безопасно извлекаем время
+        val alarmTime = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getSerializableExtra("ALARM_TIME", String::class.java) ?: "00:00"
+        } else {
+            @Suppress("DEPRECATION")
+            (intent.getSerializableExtra("ALARM_TIME") as? String) ?: "00:00"
+        }
+
+        // Перенаправляем данные в AlarmService для воспроизведения звука и вибрации
+        val serviceIntent = Intent(context, AlarmService::class.java).apply {
+            putExtra("ALARM_ID", alarmId)
+            putExtra("ALARM_TIME", alarmTime)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(serviceIntent)
+        } else {
+            context.startService(serviceIntent)
+        }
     }
 }
-
 

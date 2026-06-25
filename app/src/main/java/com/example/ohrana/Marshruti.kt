@@ -1,4 +1,8 @@
 package com.example.ohrana
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -23,41 +27,35 @@ import androidx.compose.ui.unit.sp
 fun MarshrutiScreen(
     onBack: () -> Unit
 ) {
-    val savedAlarms = remember { sharedPrefsManager.loadRouteAlarms() }
-    val routeAlarms = remember {
-        mutableStateListOf<RouteAlarm>().apply {
-            if (savedAlarms.isNotEmpty()) {
-                addAll(savedAlarms)
-            } else {
-                // Дефолтный список, если приложение запущено впервые
-                addAll(
-                    listOf(
-                        RouteAlarm(id = 1, time = "08:00", isEnabled = true),
-                        RouteAlarm(id = 2, time = "14:00", isEnabled = true),
-                        RouteAlarm(id = 3, time = "20:00", isEnabled = true)
-                    )
-                )
-            }
-        }
-    }
-
-    // Обновляем также начальное количество обходов на основе загруженных данных
-    var roundsCount by remember { mutableStateOf(routeAlarms.size) }
     val context = LocalContext.current
-    val sharedPrefsManager = remember { SharedPrefsManager(context) } // Ваша сессия памяти
+
+    // 🛡️ Создаем менеджер памяти (Имя переменной теперь строго согласовано с кодом ниже)
+    val sharedPrefsManager = remember { SharedPrefsManager(context) }
+
+    // ⏰ Инициализируем менеджер системных будильников
     val alarmScheduler = remember { AlarmScheduler(context) }
 
+    // 1. Количество обходов (Явно указываем <Int>, чтобы компилятор не путался)
+    var roundsCount by remember { mutableStateOf<Int>(3) }
 
-    // 2. Список объектов будильников (вместо обычных строк)
+    // 2. Список объектов будильников (Все переменные теперь видят sharedPrefsManager)
     val routeAlarms = remember {
-        mutableStateListOf(
-            RouteAlarm(id = 1, time = "08:00", isEnabled = true),
-            RouteAlarm(id = 2, time = "14:00", isEnabled = true),
-            RouteAlarm(id = 3, time = "20:00", isEnabled = true)
-        )
+        val savedAlarms: List<RouteAlarm> = sharedPrefsManager.loadRouteAlarms()
+        val initialList: List<RouteAlarm> = if (savedAlarms.isNotEmpty()) {
+            savedAlarms
+        } else {
+            listOf(
+                RouteAlarm(id = 1, time = "08:00", isEnabled = true),
+                RouteAlarm(id = 2, time = "14:00", isEnabled = true),
+                RouteAlarm(id = 3, time = "20:00", isEnabled = true)
+            )
+        }
+        val stateList = androidx.compose.runtime.mutableStateListOf<RouteAlarm>()
+        stateList.addAll(initialList)
+        stateList
     }
 
-    // Синхронизация количества полей времени и структуры будильников со счетчиком обходов
+    // Синхронизация количества полей времени со счетчиком обходов
     LaunchedEffect(roundsCount) {
         if (routeAlarms.size < roundsCount) {
             while (routeAlarms.size < roundsCount) {
@@ -71,10 +69,14 @@ fun MarshrutiScreen(
         }
     }
 
-    // 🔥 АВТОКОРРЕКЦИЯ: При любом изменении списка будильников, данные отправляются в AlarmScheduler
-    LaunchedEffect(routeAlarms.map { "${it.time}-${it.isEnabled}" }) {
-        alarmScheduler.updateAlarms(routeAlarms.toList())
+    // 🔥 АВТОКОРРЕКТОР: Преобразуем список в стабильную строку-ключ, чтобы не ломать типы Kotlin
+    val alarmsTriggerKey: String = routeAlarms.joinToString(separator = ",") { "${it.time}-${it.isEnabled}" }
+
+    LaunchedEffect(alarmsTriggerKey) {
+        val currentAlarmsList: List<RouteAlarm> = routeAlarms.toList()
+        alarmScheduler.updateAlarms(currentAlarmsList)
     }
+
 
     // Допуск к началу обхода (+- минут)
     var timeToleranceMinutes by remember { mutableStateOf("15") }
