@@ -1,8 +1,8 @@
 package com.example.ohrana
 
+import com.example.ohrana.QrHandler
 import android.Manifest
 import android.content.pm.PackageManager
-import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -34,6 +34,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.Executors
 
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OhrannikCabinetScreen(
@@ -60,7 +61,8 @@ fun OhrannikCabinetScreen(
     var isScanRequested by remember { mutableStateOf(false) }
 
     // --- СОСТОЯНИЯ ДЛЯ ПОКАЗА ДИАЛОГОВЫХ ОКОН ---
-    var showLocationDialog by remember { mutableStateOf<QrResult.LocationCheckpoint?>(null) }
+    var showCheckpointPassedDialog by remember { mutableStateOf<QrResult.CheckpointPassed?>(null) }
+
     var showQuestionDialog by remember { mutableStateOf<QrResult.QuestionFormat?>(null) }
     var showInputDialog by remember { mutableStateOf<QrResult.InputFormat?>(null) }
     var showErrorDialog by remember { mutableStateOf<String?>(null) }
@@ -174,26 +176,56 @@ fun OhrannikCabinetScreen(
 
                                                                 // Отправляем строку на разбор парсеру QrHandler
                                                                 val parsed = QrHandler.parseQrCode(rawValue)
+
+// --- НОВЫЙ БЛОК ОБРАБОТКИ РЕЗУЛЬТАТА ---
                                                                 when (parsed) {
-                                                                    is QrResult.LocationCheckpoint -> {
-                                                                        showLocationDialog = parsed
+                                                                    // 1. УСПЕШНО ПРОЙДЕННЫЙ ЧЕКПОИНТ (Новый тип CheckpointPassed)
+                                                                    is QrResult.CheckpointPassed -> {
+                                                                        // Просто сохраняем результат в переменную состояния.
+                                                                        // Compose автоматически перерисует экран и покажет диалог,
+                                                                        // так как значение переменной изменилось с null на объект.
+
+                                                                        showCheckpointPassedDialog = parsed
+
+                                                                        // Сохраняем лог по старой схеме менеджера
+                                                                        val logText = "Метка локации: ${parsed.name} (Отметка пройдена)"
+                                                                        manager.saveScanResult(employeeName = employeeName, qrContent = logText)
                                                                     }
+
+                                                                    // 2. ОШИБКА ПОСЛЕДОВАТЕЛЬНОСТИ (Новый тип SequenceError)
+                                                                    is QrResult.SequenceError -> {
+                                                                        // Показываем сообщение об ошибке
+                                                                        val errorMessage = if (parsed.expectedCheckpointId != null) {
+                                                                            "Ошибка! Нарушена последовательность обхода.\n" +
+                                                                                    "Ожидался чекпоинт с ID: ${parsed.expectedCheckpointId}"
+                                                                        } else {
+                                                                            "Ошибка! Вы пытаетесь пройти лишний чекпоинт или маршрут уже завершен."
+                                                                        }
+                                                                        showErrorDialog = "$errorMessage\n${parsed.message}"
+                                                                    }
+
+                                                                    // 3. ВОПРОС (Тип остался, но обрабатывается после новых проверок)
                                                                     is QrResult.QuestionFormat -> {
                                                                         showQuestionDialog = parsed
                                                                     }
+
+                                                                    // 4. ВВОД ДАННЫХ (Тип остался, но обрабатывается после новых проверок)
                                                                     is QrResult.InputFormat -> {
-                                                                        inputTextValue = "" // Чистим поле ввода
+                                                                        inputTextValue = ""
                                                                         showInputDialog = parsed
                                                                     }
+
+                                                                    // 5. ОТЧЕТ О СМЕНЕ (Тип остался)
                                                                     is QrResult.ShiftReportTrigger -> {
-                                                                        val manager = SharedPrefsManager(context)
-                                                                        // Проверяем, делал ли охранник хоть что-то за смену
-                                                                        if (manager.getScanLogs().isNotEmpty()) { /* логика */ }
+                                                                        // Логика генерации отчета...
                                                                     }
+
+                                                                    // 6. ОБЩАЯ ОШИБКА ПАРСИНГА (Тип остался)
                                                                     is QrResult.Error -> {
                                                                         showErrorDialog = parsed.message
                                                                     }
                                                                 }
+// -------------------------------------
                                                                 break // Прерываем цикл, так как нужный код найден и обработан
                                                             }
                                                         }
@@ -254,34 +286,24 @@ fun OhrannikCabinetScreen(
     // ================= РЕНДЕРИНГ ДИАЛОГОВЫХ ОКОН =================
 
     // 1. Диалог для обычной метки локации
-    showLocationDialog?.let { result ->
+    // --- РЕНДЕРИНГ ДИАЛОГА ОБ УСПЕШНОМ ПРОХОЖДЕНИИ ---
+    showCheckpointPassedDialog?.let { result ->
         AlertDialog(
-            onDismissRequest = { showLocationDialog = null },
+            onDismissRequest = { showCheckpointPassedDialog = null }, // Закрываем при клике вне окна или назад
             title = { Text("Точка зафиксирована") },
-            text = { Text("Локация: ${result.name}\nВремя: ${result.timestamp}") },
+            text = {
+                Column {
+                    Text("Локация: ${result.name}")
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("ID: ${result.checkpointId}")
+                    Text("Время: ${result.timestamp}")
+                }
+            },
             confirmButton = {
-                Button(onClick = {
-                    // 1. 🔥 Запускаем наш умный калькулятор времени из QrHandler
-                    QrHandler.saveLocationCheckpoint(context, result.name, result.timestamp)
-
-                    // 2. Достаем последний записанный статус (Вовремя/Опоздание), чтобы он попал и в Excel-отчет
-                    val lastStatus = QrHandler.generateFullReport()
-                        .lineSequence()
-                        .filter { "Результат/Ответ:" in it }
-                        .lastOrNull()
-                        ?.substringAfter("Результат/Ответ:")
-                        ?.trim() ?: "Отметка пройдена"
-
-                    // 3. Сохраняем расширенный лог в общий отчет менеджера
-                    val extendedLogText = "Метка локации: ${result.name} ($lastStatus)"
-                    manager.saveScanResult(employeeName = employeeName, qrContent = extendedLogText)
-
-                    showLocationDialog = null
-                }) { Text("ОК") }
+                Button(onClick = { showCheckpointPassedDialog = null }) { Text("ОК") }
             }
         )
     }
-
 
     // 2. Диалог с ВОПРОСОМ и кнопками вариантов ответов
     showQuestionDialog?.let { result ->
