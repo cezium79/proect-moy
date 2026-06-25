@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 fun MarshrutiScreen(
     onBack: () -> Unit
 ) {
+    var maxRoundDurationMinutes by remember { mutableStateOf("30") }
     val context = LocalContext.current
 
     // 🛡️ Создаем менеджер памяти (Имя переменной теперь строго согласовано с кодом ниже)
@@ -54,7 +55,10 @@ fun MarshrutiScreen(
         stateList.addAll(initialList)
         stateList
     }
-
+    LaunchedEffect(Unit) {
+        val localPrefs = context.getSharedPreferences("OhranaPrefs", android.content.Context.MODE_PRIVATE)
+        maxRoundDurationMinutes = localPrefs.getString("max_round_duration_key", "30") ?: "30"
+    }
     // Синхронизация количества полей времени со счетчиком обходов
     LaunchedEffect(roundsCount) {
         if (routeAlarms.size < roundsCount) {
@@ -191,6 +195,20 @@ fun MarshrutiScreen(
                             label = { Text("Допуск к началу обхода (+- минут)") },
                             modifier = Modifier.fillMaxWidth()
                         )
+
+                        // 🔥 НОВОЕ ПОЛЕ: Максимальное время на сам обход
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = maxRoundDurationMinutes,
+                            onValueChange = { maxRoundDurationMinutes = it },
+                            label = { Text("Максимальное время на обход (в минутах)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                            )
+                        )
+
                     }
                 }
             }
@@ -263,6 +281,10 @@ fun MarshrutiScreen(
                     onClick = {
                         // Сохраняем в память телефона перед выходом
                         sharedPrefsManager.saveRouteAlarms(routeAlarms.toList())
+                        // 🔥 Записываем продолжительность обхода в память устройства
+                        val localPrefs = context.getSharedPreferences("OhranaPrefs", android.content.Context.MODE_PRIVATE)
+                        localPrefs.edit().putString("max_round_duration_key", maxRoundDurationMinutes).apply()
+
                         onBack()
                     },
                     modifier = Modifier.fillMaxWidth().height(50.dp)

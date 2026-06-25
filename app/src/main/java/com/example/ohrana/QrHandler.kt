@@ -78,17 +78,84 @@ object QrHandler {
         }
     }
 
-    // Сохранение обычной текстовой точки (Тип 3) автоматически
-    fun saveLocationCheckpoint(name: String, timestamp: String) {
+        // 🔥 ПОЛНОСТЬЮ ИСПРАВЛЕННЫЙ МЕТОД РАСЧЕТА ВРЕМЕНИ ОБХОДОВ
+    fun saveLocationCheckpoint(context: android.content.Context, name: String, timestamp: String) {
+        val sharedPrefsManager = SharedPrefsManager(context)
+
+        // 1. Загружаем сохраненные будильники
+        val savedAlarms = sharedPrefsManager.loadRouteAlarms()
+
+        // ⏱️ Читаем допуск напрямую из SharedPreferences (по умолчанию 15 минут)
+        val localPrefs = context.getSharedPreferences("OhranaPrefs", android.content.Context.MODE_PRIVATE)
+        val toleranceString = localPrefs.getString("route_tolerance_key", "15") ?: "15"
+        val tolerance = toleranceString.toIntOrNull() ?: 15
+
+        var finalStatus = "Отметка пройдена вне расписания"
+
+        if (savedAlarms.isNotEmpty()) {
+            try {
+                // Вырезаем "HH:mm" из строки вида "dd.MM.yyyy HH:mm:ss"
+                val timePartString = timestamp.substringAfter(" ").substringBeforeLast(":") // Результат: "14:30"
+                val currentParts = timePartString.split(":")
+
+                if (currentParts.size == 2) {
+                    // Используем ЖЕСТКИЕ индексы [0] для часов и [1] для минут
+                    val currentHours = currentParts[0].toIntOrNull() ?: 0
+                    val currentMinutes = currentParts[1].toIntOrNull() ?: 0
+                    val currentMinutesTotal = currentHours * 60 + currentMinutes
+
+                    var closestAlarm: RouteAlarm? = null
+                    var minDifference = Int.MAX_VALUE
+
+                    // Поиск ближайшего включенного будильника администратора
+                    for (alarm in savedAlarms) {
+                        if (!alarm.isEnabled) continue
+
+                        val alarmParts = alarm.time.split(":")
+                        if (alarmParts.size == 2) {
+                            // Используем ЖЕСТКИЕ индексы [0] и [1]
+                            val alarmHours = alarmParts[0].toIntOrNull() ?: 0
+                            val alarmMinutes = alarmParts[1].toIntOrNull() ?: 0
+                            val alarmMinutesTotal = alarmHours * 60 + alarmMinutes
+
+                            val diff = currentMinutesTotal - alarmMinutesTotal
+
+                            if (java.lang.Math.abs(diff) < java.lang.Math.abs(minDifference)) {
+                                minDifference = diff
+                                closestAlarm = alarm
+                            }
+                        }
+                    }
+
+                    // 2. Сравнение с допуском обхода (tolerance)
+                    closestAlarm?.let { alarm ->
+                        val absDiff = java.lang.Math.abs(minDifference)
+                        finalStatus = when {
+                            absDiff <= tolerance -> "Вовремя (Обход №${alarm.id})"
+                            minDifference > 0 -> "Опоздание на $absDiff мин (Обход №${alarm.id})"
+                            else -> "Раньше графика на $absDiff мин (Обход №${alarm.id})"
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // Если парсинг упадет, запишем ошибку в системный лог Android Studio
+                android.util.Log.e("QrHandlerError", "Ошибка расчета времени обхода: ${e.message}")
+                finalStatus = "Отметка пройдена (Ошибка расчета)"
+            }
+        }
+
+        // Записываем итоговый результат в локальный журнал текущей смены
         shiftLogs.add(
             CheckpointEntry(
                 type = "Метка локации",
                 titleOrLocation = name,
-                userResult = "Отметка пройдена",
+                userResult = finalStatus,
                 timestamp = timestamp
             )
         )
     }
+
+
 
     // Сохранение ответов на вопросы или введенных показаний счетчиков (Типы 1 и 2)
     fun saveUserResponse(type: String, title: String, response: String) {

@@ -1,6 +1,8 @@
 package com.example.ohrana
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
@@ -14,8 +16,6 @@ import androidx.compose.ui.unit.sp
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import androidx.compose.foundation.BorderStroke
-
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -32,6 +32,45 @@ fun OhrannikShiftControlScreen(
 
     var isShiftActive by remember { mutableStateOf(prefsManager.isShiftActiveFor(employeeName)) }
     val shiftStartTime = remember { prefsManager.getShiftStartTime() }
+
+    // 🔥 СТАТУС ДЛЯ ОТОБРАЖЕНИЯ ЖУРНАЛА ОБХОДОВ
+    var showLogsDialog by remember { mutableStateOf(false) }
+
+    // 🔔 ВСПЛЫВАЮЩЕЕ ОКНО С ИСТОРИЕЙ ОБХОДОВ ТЕКУЩЕЙ СМЕНЫ
+    if (showLogsDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogsDialog = false },
+            title = { Text("Журнал текущих обходов", fontWeight = FontWeight.Bold) },
+            text = {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(350.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(12.dp)
+                    ) {
+                        item {
+                            Text(
+                                text = QrHandler.generateFullReport(), // Вызываем функцию отчета
+                                fontSize = 14.sp,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showLogsDialog = false }) {
+                    Text("Закрыть")
+                }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -67,22 +106,34 @@ fun OhrannikShiftControlScreen(
                     text = "Время начала: $shiftStartTime",
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.padding(bottom = 48.dp)
+                    modifier = Modifier.padding(bottom = 32.dp)
                 )
 
-                // 1. Кнопка "ПРОДОЛЖИТЬ" (Перебрасывает обратно в OhrannikCabinetScreen с камерой)
+                // 1. Кнопка "ПРОДОЛЖИТЬ ОБХОД" (Основное действие)
                 Button(
                     onClick = onContinueShift,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 16.dp)
-                        .height(64.dp),
+                        .padding(bottom = 12.dp)
+                        .height(60.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                     Text("ПРОДОЛЖИТЬ ОБХОД", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 }
 
-                // 2. Кнопка СТОП (Завершить смену)
+                // 2. 🔥 НОВАЯ КНОПКА «ПОСМОТРЕТЬ МОИ ОБХОДЫ»
+                Button(
+                    onClick = { showLogsDialog = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 24.dp)
+                        .height(50.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                ) {
+                    Text("ПОСМОТРЕТЬ МОИ ОБХОДЫ", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                }
+
+                // 3. Кнопка СТОП (Завершить смену)
                 OutlinedButton(
                     onClick = {
                         prefsManager.generateExcelReport(employeeName)

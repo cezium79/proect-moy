@@ -261,13 +261,27 @@ fun OhrannikCabinetScreen(
             text = { Text("Локация: ${result.name}\nВремя: ${result.timestamp}") },
             confirmButton = {
                 Button(onClick = {
-                    val logText = "Метка локации: ${result.name} (Отметка пройдена)"
-                    manager.saveScanResult(employeeName = employeeName, qrContent = logText)
+                    // 1. 🔥 Запускаем наш умный калькулятор времени из QrHandler
+                    QrHandler.saveLocationCheckpoint(context, result.name, result.timestamp)
+
+                    // 2. Достаем последний записанный статус (Вовремя/Опоздание), чтобы он попал и в Excel-отчет
+                    val lastStatus = QrHandler.generateFullReport()
+                        .lineSequence()
+                        .filter { "Результат/Ответ:" in it }
+                        .lastOrNull()
+                        ?.substringAfter("Результат/Ответ:")
+                        ?.trim() ?: "Отметка пройдена"
+
+                    // 3. Сохраняем расширенный лог в общий отчет менеджера
+                    val extendedLogText = "Метка локации: ${result.name} ($lastStatus)"
+                    manager.saveScanResult(employeeName = employeeName, qrContent = extendedLogText)
+
                     showLocationDialog = null
                 }) { Text("ОК") }
             }
         )
     }
+
 
     // 2. Диалог с ВОПРОСОМ и кнопками вариантов ответов
     showQuestionDialog?.let { result ->
