@@ -14,7 +14,22 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.camera.core.Preview
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
 import com.example.ohrana.CameraScannerScreen
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.dp
+
 
 
 
@@ -26,6 +41,50 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+@Composable
+fun AdminPasswordDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+    isError: Boolean
+) {
+    var passwordInput by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Доступ ограничен") },
+        text = {
+            Column {
+                Text("Введите пароль администратора:")
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = passwordInput,
+                    onValueChange = { passwordInput = it },
+                    label = { Text("Пароль") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    isError = isError,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (isError) {
+                    Text(
+                        text = "Неверный пароль. Попробуйте еще раз.",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(passwordInput) }) { Text("Вход") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Отмена") }
+        }
+    )
+}
+
 
 @Composable
 fun AppNavigation() {
@@ -50,8 +109,27 @@ fun AppNavigation() {
         }
         mutableStateListOf<Employee>().apply { addAll(initialList) }
     }
+    var showPasswordDialog by remember { mutableStateOf(false) }
+    var isPasswordError by remember { mutableStateOf(false) }
 
 
+    // 🔔 ВСПЛЫВАЮЩЕЕ ДИАЛОГОВОЕ ОКНО
+    if (showPasswordDialog) {
+        AdminPasswordDialog(
+            onDismiss = { showPasswordDialog = false; isPasswordError = false },
+            onConfirm = { enteredPassword ->
+                if (enteredPassword == "1234")// Пароль для входа в окно настроек
+                {
+                    showPasswordDialog = false
+                    isPasswordError = false
+                    currentScreen = "admin"
+                } else {
+                    isPasswordError = true
+                }
+            },
+            isError = isPasswordError
+        )
+    }
 
     when (currentScreen) {
         "privet" -> PrivetScreen(
@@ -69,7 +147,7 @@ fun AppNavigation() {
                     currentScreen = "ohrannik"
                 }
             },
-            onNavigateToAdministrator = { currentScreen = "admin" }
+            onNavigateToAdministrator = { showPasswordDialog = true }
         )
 
         "ohrannik" -> OhrannikScreen(
@@ -180,5 +258,6 @@ fun AppNavigation() {
 
 
     }
+
 
 }

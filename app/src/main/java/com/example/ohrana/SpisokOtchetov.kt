@@ -8,8 +8,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -23,12 +24,15 @@ import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+
 fun SpisokOtchetovScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
     val prefsManager = remember { SharedPrefsManager(context) }
     val reportsList = remember { prefsManager.getReportsList() }
+    val arrowBackIcon = androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack
+
 
     Scaffold(
         topBar = {
@@ -36,7 +40,7 @@ fun SpisokOtchetovScreen(
                 title = { Text("Архив отчетов (Excel/CSV)") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
+                        Icon(arrowBackIcon, contentDescription = "Назад")
                     }
                 }
             )
@@ -57,6 +61,28 @@ fun SpisokOtchetovScreen(
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     items(reportsList) { file ->
+                        // 🔥 Парсим имя файла "Фамилия_Имя_Дата_Время.csv"
+                        val displayName = remember(file.name) {
+                            try {
+                                val nameWithoutExt = file.nameWithoutExtension
+                                val parts = nameWithoutExt.split("_")
+
+                                if (parts.size >= 4) {
+                                    val lastName = parts[0]
+                                    val firstName = parts[1]
+                                    val datePart = parts[2]
+                                    val timePart = parts[3].replace("-", ":") // Заменяем дефис на двоеточие во времени
+
+                                    "$lastName $firstName | $datePart в $timePart"
+                                } else {
+                                    // Если файл старого формата или имя повреждено, показываем как есть
+                                    file.name
+                                }
+                            } catch (e: Exception) {
+                                file.name
+                            }
+                        }
+
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -68,7 +94,8 @@ fun SpisokOtchetovScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(text = file.name, style = MaterialTheme.typography.bodyLarge)
+                                    // Выводим красивое распарсенное имя вместо file.name
+                                    Text(text = displayName, style = MaterialTheme.typography.bodyLarge)
                                     Text(
                                         text = "${file.length() / 1024} Кб",
                                         style = MaterialTheme.typography.bodySmall,
@@ -84,6 +111,7 @@ fun SpisokOtchetovScreen(
         }
     }
 }
+
 
 // Функция системного открытия CSV файла внешними табличными редакторами (Excel, Гугл Таблицы)
 private fun openFileInSystem(context: Context, file: File) {

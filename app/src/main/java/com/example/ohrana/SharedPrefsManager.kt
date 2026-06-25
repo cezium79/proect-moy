@@ -148,10 +148,13 @@ class SharedPrefsManager(private val context: Context) {
     // Генерация CSV отчета для Excel
     fun generateExcelReport(employeeName: String): File? {
         val logs = getScanLogs()
-        val fileTimestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val fileName = "Отчет_${employeeName.replace(" ", "_")}_$fileTimestamp.csv"
 
-        // Создаем файл во внутреннем хранилище (доступно для просмотра внутри приложения)
+        // 🗓️ Понятный формат: день.месяц.yy_HH-mm (например, 25.06.26_14-30)
+        val fileTimestamp = SimpleDateFormat("dd.MM.yy_HH-mm", Locale.US).format(Date())
+
+        // Шаблон имени файла: Фамилия_Имя_ДАТА_ВРЕМЯ.csv
+        val fileName = "${employeeName.replace(" ", "_")}_$fileTimestamp.csv"
+
         val reportsDir = File(context.filesDir, "reports")
         if (!reportsDir.exists()) reportsDir.mkdirs()
 
