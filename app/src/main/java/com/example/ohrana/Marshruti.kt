@@ -23,35 +23,65 @@ import androidx.compose.ui.unit.sp
 fun MarshrutiScreen(
     onBack: () -> Unit
 ) {
-    // Инициализируем менеджер памяти
-    val context = LocalContext.current
-    val prefsManager = remember { SharedPrefsManager(context) }
-
-    // 1. Загружаем сохраненное количество обходов
-    var roundsCount by remember { mutableStateOf(prefsManager.loadRouteRoundsCount()) }
-
-    // 2. Загружаем сохраненный список временных полей
-    val roundTimes = remember { mutableStateListOf<String>().apply { addAll(prefsManager.loadRouteTimes()) } }
-
-    // Синхронизация количества полей времени со счетчиком обходов
-    LaunchedEffect(roundsCount) {
-        if (roundTimes.size < roundsCount) {
-            while (roundTimes.size < roundsCount) {
-                roundTimes.add("")
-            }
-        } else if (roundTimes.size > roundsCount) {
-            while (roundTimes.size > roundsCount) {
-                roundTimes.removeAt(roundTimes.lastIndex)
+    val savedAlarms = remember { sharedPrefsManager.loadRouteAlarms() }
+    val routeAlarms = remember {
+        mutableStateListOf<RouteAlarm>().apply {
+            if (savedAlarms.isNotEmpty()) {
+                addAll(savedAlarms)
+            } else {
+                // Дефолтный список, если приложение запущено впервые
+                addAll(
+                    listOf(
+                        RouteAlarm(id = 1, time = "08:00", isEnabled = true),
+                        RouteAlarm(id = 2, time = "14:00", isEnabled = true),
+                        RouteAlarm(id = 3, time = "20:00", isEnabled = true)
+                    )
+                )
             }
         }
     }
 
-    // Загружаем сохраненный допуск к началу обхода
-    var timeToleranceMinutes by remember { mutableStateOf(prefsManager.loadRouteTolerance()) }
+    // Обновляем также начальное количество обходов на основе загруженных данных
+    var roundsCount by remember { mutableStateOf(routeAlarms.size) }
+    val context = LocalContext.current
+    val sharedPrefsManager = remember { SharedPrefsManager(context) } // Ваша сессия памяти
+    val alarmScheduler = remember { AlarmScheduler(context) }
 
-    // 3. Загружаем сохраненные обязательные точки обхода
+
+    // 2. Список объектов будильников (вместо обычных строк)
+    val routeAlarms = remember {
+        mutableStateListOf(
+            RouteAlarm(id = 1, time = "08:00", isEnabled = true),
+            RouteAlarm(id = 2, time = "14:00", isEnabled = true),
+            RouteAlarm(id = 3, time = "20:00", isEnabled = true)
+        )
+    }
+
+    // Синхронизация количества полей времени и структуры будильников со счетчиком обходов
+    LaunchedEffect(roundsCount) {
+        if (routeAlarms.size < roundsCount) {
+            while (routeAlarms.size < roundsCount) {
+                val nextId = routeAlarms.size + 1
+                routeAlarms.add(RouteAlarm(id = nextId, time = "", isEnabled = true))
+            }
+        } else if (routeAlarms.size > roundsCount) {
+            while (routeAlarms.size > roundsCount) {
+                routeAlarms.removeAt(routeAlarms.lastIndex)
+            }
+        }
+    }
+
+    // 🔥 АВТОКОРРЕКЦИЯ: При любом изменении списка будильников, данные отправляются в AlarmScheduler
+    LaunchedEffect(routeAlarms.map { "${it.time}-${it.isEnabled}" }) {
+        alarmScheduler.updateAlarms(routeAlarms.toList())
+    }
+
+    // Допуск к началу обхода (+- минут)
+    var timeToleranceMinutes by remember { mutableStateOf("15") }
+
+    // 3. Обязательные точки обхода (QR)
     var newPointInput by remember { mutableStateOf("") }
-    val checkpointList = remember { mutableStateListOf<String>().apply { addAll(prefsManager.loadRouteCheckpoints()) } }
+    val checkpointList = remember { mutableStateListOf("Точка_Вход", "Точка_Склад_1", "Точка_Забор") }
 
     Scaffold(
         topBar = {
@@ -98,7 +128,7 @@ fun MarshrutiScreen(
                 }
             }
 
-            // --- РАЗДЕЛ 2: ДИНАМИЧЕСКОЕ РАСПИСАНИЕ И ДОПУСКИ ---
+            // --- РАЗДЕЛ 2: ДИНАМИЧЕСКОЕ РАСПИСАНИЕ, ПЕРЕКЛЮЧАТЕЛИ И ДОПУСКИ ---
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -108,15 +138,47 @@ fun MarshrutiScreen(
                         Text("2. Расписание и временные рамки", fontSize = 16.sp, style = MaterialTheme.typography.titleMedium)
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        roundTimes.forEachIndexed { index, timeValue ->
-                            OutlinedTextField(
-                                value = timeValue,
-                                onValueChange = { newValue -> roundTimes[index] = newValue },
-                                label = { Text("Время начала обхода №${index + 1} (например, 08:00)") },
+                        routeAlarms.forEachIndexed { index, alarm ->
+                            Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(bottom = 8.dp)
-                            )
+                                    .padding(bottom = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                // Поле ввода времени (Занимает основную ширину)
+                                OutlinedTextField(
+                                    value = alarm.time,
+                                    onValueChange = { newValue ->
+                                        routeAlarms[index] = alarm.copy(time = newValue)
+                                    },
+                                    label = { Text("Время обхода №${alarm.id} (например, 08:00)") },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true
+                                )
+
+                                // 🔘 Переключатель подтверждения / игнорирования будильника
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Text(
+                                        text = if (alarm.isEnabled) "Вкл" else "Игнор",
+                                        fontSize = 12.sp,
+                                        color = if (alarm.isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                    )
+                                    Switch(
+                                        checked = alarm.isEnabled,
+                                        onCheckedChange = { isChecked ->
+                                            routeAlarms[index] = alarm.copy(isEnabled = isChecked)
+                                        },
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = MaterialTheme.colorScheme.primary,
+                                            checkedTrackColor = MaterialTheme.colorScheme.primaryContainer
+                                        )
+                                    )
+                                }
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))
@@ -161,7 +223,6 @@ fun MarshrutiScreen(
                 }
             }
 
-            // Вывод уменьшенных чек-поинтов
             items(checkpointList) { checkpoint ->
                 Row(
                     modifier = Modifier
@@ -178,6 +239,7 @@ fun MarshrutiScreen(
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                         modifier = Modifier.weight(1f)
                     )
+
                     IconButton(
                         onClick = { checkpointList.remove(checkpoint) },
                         modifier = Modifier.size(32.dp)
@@ -197,19 +259,15 @@ fun MarshrutiScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(
                     onClick = {
-                        // Сохраняем все данные в SharedPreferences перед выходом
-                        prefsManager.saveRouteSettings(
-                            roundsCount = roundsCount,
-                            times = roundTimes.toList(),
-                            tolerance = timeToleranceMinutes,
-                            checkpoints = checkpointList.toList()
-                        )
+                        // Сохраняем в память телефона перед выходом
+                        sharedPrefsManager.saveRouteAlarms(routeAlarms.toList())
                         onBack()
                     },
                     modifier = Modifier.fillMaxWidth().height(50.dp)
                 ) {
                     Text("Сохранить настройки маршрута", fontSize = 16.sp)
                 }
+
             }
         }
     }
