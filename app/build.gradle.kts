@@ -62,17 +62,10 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
     // 1. Основные библиотеки CameraX
     val cameraxVersion = "1.4.0" // Используйте актуальную стабильную версию
-    implementation("androidx.camera:camera-core:$cameraxVersion")
-    implementation("androidx.camera:camera-camera2:$cameraxVersion")
-    implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
-    implementation("androidx.camera:camera-view:$cameraxVersion")
-
-    // 2. Интеграция CameraX и ML Kit (содержит MlKitAnalyzer)
-    implementation("androidx.camera:camera-mlkit-vision:$cameraxVersion")
-
-    // 3. Функции ML Kit (выберите нужные, например, сканер штрихкодов и распознавание текста)
-    implementation("com.google.mlkit:barcode-scanning:17.3.0")
-    implementation("com.google.mlkit:text-recognition:16.0.1")
-    implementation("com.google.mlkit:barcode-scanning:17.2.0")
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.barcode.scanning)
 
 }

@@ -2,253 +2,121 @@ package com.example.ohrana
 
 import org.json.JSONObject
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
 
-// 1. Все возможные исходы сканирования (добавлены новые типы)
+// 1. ОБНОВЛЕННАЯ МОДЕЛЬ ДАННЫХ ДЛЯ ЗАПИСИ В ЛОГ
+// Добавлены поля id, userResult (теперь может быть null) и photoPath (для будущего)
+data class CheckpointEntry(
+    val id: String,
+    val type: String,
+    val titleOrLocation: String,
+    val userResult: String? = null, // Может хранить ответ "Да/Нет", введенное число и т.д.
+    val photoPath: String? = null, // Предусмотрено для будущего (фото)
+    val timestamp: String
+)
+
+// 2. ОБНОВЛЕННАЯ СИСТЕМА РЕЗУЛЬТАТОВ ПАРСИНГА
+// Теперь все виды чекпоинтов описываются одним классом Checkpoint
 sealed class QrResult {
-    data class CheckpointPassed(val checkpointId: String, val name: String, val timestamp: String) : QrResult()
-    data class SequenceError(val expectedCheckpointId: String?, val message: String) : QrResult()
-    data class QuestionFormat(val text: String, val answers: List<String>) : QrResult()
-    data class InputFormat(val title: String) : QrResult()
+    data class Checkpoint(
+        val id: String,
+        val name: String,
+        val action: String? = null, // "question", "input", "photo" или null для простого чекпоинта
+        val text: String? = null,
+        val answers: List<String>? = null,
+        val placeholder: String? = null
+    ) : QrResult()
+
     object ShiftReportTrigger : QrResult()
     data class Error(val message: String) : QrResult()
 }
 
-data class CheckpointEntry(
-    val type: String,
-    val titleOrLocation: String,
-    val userResult: String,
-    val timestamp: String
-)
+// 3. ГЛАВНЫЙ ОБЪЕКТ ДЛЯ РАБОТЫ С QR-КОДАМИ
+object QrHandler {
 
-/**
- * Внутренний класс, представляющий маршрут обхода.
- */
-private class PatrolRoute(val routeName: String, private val checkpoints: List<String>) {
-    var currentIndex = 0
-        private set
+    private val dateFormat = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.US)
 
-    /**
-     * Проверяет ID чекпоинта и, если он верный, продвигает обход к следующей точке.
-     */
-    fun validateAndAdvance(checkpointId: String): Pair<Boolean, String?> {
-        // Сначала проверяем, совпадает ли отсканированный ID с тем, который мы ждем сейчас.
-        if (currentIndex < checkpoints.size && checkpoints[currentIndex] == checkpointId) {
-            // Если ДА, то продвигаем индекс к СЛЕДУЮЩЕЙ точке.
-            currentIndex++
+    // В памяти хранятся все события смены
+    private val shiftLogs = mutableListOf<CheckpointEntry>()
 
-            // Теперь определяем, какой ID будет следующим (чтобы показать пользователю подсказку)
-            val nextExpectedId = if (currentIndex < checkpoints.size) {
-                checkpoints[currentIndex]
+    // --- ОСНОВНОЙ МЕТОД ПАРСИНГА ---
+    fun parseQrCode(rawText: String): QrResult {
+        val trimmed = rawText.trim()
+
+        // Проверка на команду вызова отчета (сработает мгновенно)
+        if (trimmed.equals("отчет о смене", ignoreCase = true)) {
+            return QrResult.ShiftReportTrigger
+        }
+
+        // Если это не JSON-объект, сразу ошибка
+        if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+            return QrResult.Error("Игнорируется: это не рабочий QR-код системы")
+        }
+
+        return try {
+            val json = JSONObject(trimmed)
+
+            // Жесткая проверка на тип "checkpoint"
+            if (json.getString("type") == "checkpoint") {
+                val id = json.getString("id")
+                val name = json.getString("name")
+
+                // Используем optString, чтобы избежать исключения, если поля нет.
+                // Если поле есть, но пустое - вернет пустую строку.
+                val action = json.optString("action")
+                val text = json.optString("text")
+                val placeholder = json.optString("placeholder")
+
+                // Безопасная обработка массива ответов
+                val answers = if (json.has("answers") && !json.isNull("answers")) {
+                    val jsonArray = json.getJSONArray("answers")
+                    List(jsonArray.length()) { jsonArray.getString(it) }
+                } else {
+                    null
+                }
+
+                return QrResult.Checkpoint(
+                    id = id,
+                    name = name,
+                    action = if (action.isNotEmpty()) action else null,
+                    text = if (text.isNotEmpty()) text else null,
+                    placeholder = if (placeholder.isNotEmpty()) placeholder else null,
+                    answers = answers
+                )
             } else {
-                null // Обход завершен, следующих точек нет
+                QrResult.Error("Игнорируется: неизвестный тип данных")
             }
-            return Pair(true, nextExpectedId)
-        } else {
-            // Если НЕТ, возвращаем тот ID, который ожидался изначально
-            val expectedId =
-                if (currentIndex < checkpoints.size) checkpoints[currentIndex] else null
-            return Pair(false, expectedId)
+        } catch (e: Exception) {
+            QrResult.Error("Игнорируется: невалидный JSON-формат")
         }
     }
+
+
+    // --- МЕТОДЫ СОХРАНЕНИЯ И ГЕНЕРАЦИИ ОТЧЕТА ---
+    // Эти методы остаются, но в идеале должны быть перемещены в отдельный Repository
+
+    fun saveUserResponse(entry: CheckpointEntry) {
+        shiftLogs.add(entry)
+    }
+
+    fun generateFullReport(): String {
+        if (shiftLogs.isEmpty()) {
+            return "Отчет пуст. За смену не было зафиксировано ни одного сканирования."
+        }
+
+        val builder = StringBuilder()
+        builder.append("=== ОТЧЕТ О СМЕНЕ ОХРАНЫ ===\n")
+        builder.append("Сгенерирован: ${dateFormat.format(Date())}\n")
+        builder.append("----------------------------------------\n")
+
+        shiftLogs.forEachIndexed { index, entry ->
+            builder.append("${index + 1}. [${entry.timestamp}]\n")
+            builder.append(" Тип: ${entry.type}\n")
+            builder.append(" Объект: ${entry.titleOrLocation}\n")
+            builder.append(" Результат/Ответ: ${entry.userResult ?: "нет ответа"}\n")
+            builder.append("----------------------------------------\n")
+        }
+
+        return builder.toString()
+    }
 }
-  object QrHandler {
-      // Единый формат даты для всего класса
-      private val dateFormat = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.US)
-
-      // Список логов завершенных или текущих смен
-      private val shiftLogs = mutableListOf<CheckpointEntry>()
-
-      // Активные маршруты обхода. Ключ - уникальное имя смены/маршрута.
-// Модификатор 'private' скрывает карту от внешнего доступа,
-// а внутренние функции QrHandler могут работать с ней через публичные методы.
-      private val activeRounds = mutableMapOf<String, PatrolRoute>()
-
-      // Ключ для маршрута по умолчанию (единственного в проекте)
-      private const val DEFAULT_ROUND_KEY = "Маршрут_Смены_1"
-
-      /**
-       * Эталонная последовательность чекпоинтов для обхода.
-       * В идеале, эти данные должны загружаться из настроек администратора (Marshruti.kt).
-       */
-      private val defaultCheckpointIds: List<String> by lazy {
-          listOf("CP-001", "CP-002", "CP-003")
-      }
-
-      /**
-       * Возвращает ключ активного обхода, если он существует.
-       */
-      fun getActiveRouteKey(): String? {
-          return if (activeRounds.containsKey(DEFAULT_ROUND_KEY)) {
-              DEFAULT_ROUND_KEY
-          } else {
-              null
-          }
-      }
-
-      /**
-       * Завершает активный обход, если он был начат.
-       * Эту функцию можно вызывать безопасно в любой момент.
-       */
-      fun endRoundIfActive() {
-          val activeKey = getActiveRouteKey()
-
-          if (activeKey != null) {
-              activeRounds.remove(activeKey)?.let { completedRound ->
-                  println("Обход '${completedRound.routeName}' завершен.")
-              }
-          } else {
-              println("Завершение обхода: обход не был активен.")
-          }
-      }
-
-      /**
-       * Основная функция парсинга QR-кода.
-       * Здесь реализована логика автоматического старта обхода при первом сканировании.
-       */
-      fun parseQrCode(rawText: String): QrResult {
-          val trimmed = rawText.trim()
-
-          if (trimmed.equals("отчет о смене", ignoreCase = true)) {
-              return QrResult.ShiftReportTrigger
-          }
-
-          if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
-              return QrResult.Error("Игнорируется: это не рабочий QR-код системы")
-          }
-
-          return try {
-              val json = JSONObject(trimmed)
-
-              // --- ОБЪЕДИНЕННАЯ ЛОГИКА ---
-              when {
-                  // БЛОК 1: КОД СОДЕРЖИТ И ЧЕКПОИНТ, И ВОПРОС
-                  json.has("type") && json.getString("type") == "checkpoint" &&
-                          json.has("action") && json.getString("action") == "question" -> {
-
-                      // Сначала обрабатываем как обычный чекпоинт (проверяем последовательность)
-                      val checkpointId = json.optString("id", "")
-                      val name = json.getString("name")
-                      val currentTime = dateFormat.format(Date())
-
-                      val activeRoute = activeRounds[DEFAULT_ROUND_KEY]
-                      if (activeRoute != null) {
-                          val (isValid, expectedId) = activeRoute.validateAndAdvance(checkpointId)
-                          if (!isValid) {
-                              return QrResult.SequenceError(
-                                  expectedId ?: "",
-                                  "Нарушена последовательность обхода."
-                              )
-                          }
-                      } else {
-                          startNewRound(DEFAULT_ROUND_KEY, defaultCheckpointIds)
-                      }
-
-                      // Если проверка последовательности пройдена, сохраняем факт прохода точки
-                      saveCheckpointToLog(DEFAULT_ROUND_KEY, checkpointId, name, currentTime)
-
-                      // Затем извлекаем данные вопроса и возвращаем их результат
-                      val questionText = json.getString("text")
-                      val answersArray = json.getJSONArray("answers")
-                      val answersList = List(answersArray.length()) { answersArray.getString(it) }
-
-                      QrResult.QuestionFormat(questionText, answersList)
-                  }
-
-                  // БЛОК 2: ОБЫЧНЫЙ ЧЕКПОИНТ (без доп. действий)
-                  json.has("type") && json.getString("type") == "checkpoint" -> {
-                      // ... вся существующая логика для обычного чекпоинта остается здесь ...
-                      val checkpointId = json.optString("id", "")
-                      val name = json.getString("name")
-                      val currentTime = dateFormat.format(Date())
-
-                      val activeRoute = activeRounds[DEFAULT_ROUND_KEY]
-                      if (activeRoute != null) {
-                          val (isValid, expectedId) = activeRoute.validateAndAdvance(checkpointId)
-                          if (isValid) {
-                              saveCheckpointToLog(
-                                  DEFAULT_ROUND_KEY,
-                                  checkpointId,
-                                  name,
-                                  currentTime
-                              )
-                              QrResult.CheckpointPassed(checkpointId, name, currentTime)
-                          } else {
-                              QrResult.SequenceError(
-                                  expectedId ?: "",
-                                  "Нарушена последовательность обхода."
-                              )
-                          }
-                      } else {
-                          startNewRound(DEFAULT_ROUND_KEY, defaultCheckpointIds)
-                          // Повторно вызываем парсер, чтобы он зашел в ветку 'activeRoute != null'
-                          return parseQrCode(rawText)
-                      }
-                  }
-
-                  // БЛОК 3: ПРОСТОЙ ВОПРОС
-                  json.has("action") && json.getString("action") == "question" -> {
-                      val text = json.getString("text")
-                      val answersList = List(json.getJSONArray("answers").length()) { i ->
-                          json.getJSONArray("answers").getString(i)
-                      }
-                      QrResult.QuestionFormat(text, answersList)
-                  }
-
-                  // БЛОК 4: ВВОД ДАННЫХ
-                  json.has("type") && json.getString("type") == "input" -> {
-                      val title = json.getString("title")
-                      QrResult.InputFormat(title)
-                  }
-
-                  // ФИНАЛЬНЫЙ ELSE для любых других случаев
-                  else -> {
-                      return QrResult.Error("Игнорируется: неизвестный тип данных")
-                  }
-              }
-          } catch (e: Exception) {
-              return QrResult.Error("Игнорируется: невалидный JSON-формат")
-          }
-      }
-
-      fun startNewRound(roundName: String, checkpointIds: List<String>) {
-          activeRounds[roundName] = PatrolRoute(roundName, checkpointIds)
-      }
-
-      private fun saveCheckpointToLog(
-          routeName: String,
-          id: String,
-          name: String,
-          timestamp: String
-      ) {
-          shiftLogs.add(
-              CheckpointEntry(
-                  type = "Маршрут: $routeName",
-                  titleOrLocation = "$name (ID: $id)",
-                  userResult = "Отметка пройдена",
-                  timestamp = timestamp
-              )
-          )
-      }
-
-      fun generateFullReport(): String {
-          if (shiftLogs.isEmpty()) {
-              return "Отчет пуст. За смену не было зафиксировано ни одного сканирования."
-          }
-          val builder = StringBuilder()
-          builder.append("=== ОТЧЕТ О СМЕНЕ ===\n")
-          builder.append("Сгенерирован: ${dateFormat.format(Date())}\n")
-          builder.append("----------------------------------------\n")
-          shiftLogs.forEachIndexed { index, entry ->
-              builder.append("${index + 1}. [${entry.timestamp}]\n")
-              builder.append(" Тип: ${entry.type}\n")
-              builder.append(" Объект: ${entry.titleOrLocation}\n")
-              builder.append(" Результат: ${entry.userResult}\n")
-              builder.append("----------------------------------------\n")
-          }
-          return builder.toString()
-      }
-  }
-
-

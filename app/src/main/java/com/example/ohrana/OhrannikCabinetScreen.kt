@@ -1,8 +1,8 @@
 package com.example.ohrana
 
-import com.example.ohrana.QrHandler
 import android.Manifest
 import android.content.pm.PackageManager
+import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -25,48 +25,49 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.LifecycleOwner
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.Executors
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.camera.core.ExperimentalGetImage
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.camera.core.ImageProxy
+import com.google.mlkit.vision.barcode.BarcodeScanner
 
-
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalGetImage::class)
 @Composable
 fun OhrannikCabinetScreen(
     employeeName: String,
     onLogout: () -> Unit,
     onNavigateToReports: () -> Unit
 ) {
+
     val context = LocalContext.current
+    val lifecycleOwner: LifecycleOwner = LocalLifecycleOwner.current // <-- ИСПРАВЛЕННАЯ СТРОКА
     val manager = remember(context) { SharedPrefsManager(context) }
 
-    val lifecycleOwner = LocalLifecycleOwner.current
-
-    val shiftStartTime = remember {
-        SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-    }
+    // Формат даты для диалогов и логов (должен совпадать с QrHandler)
+    val dateFormat = remember { SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.US) }
+    val currentTime = remember { dateFormat.format(Date()) }
 
     var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         )
     }
-
-    // Главный триггер захвата кадра при нажатии кнопки "Сканировать"
     var isScanRequested by remember { mutableStateOf(false) }
 
     // --- СОСТОЯНИЯ ДЛЯ ПОКАЗА ДИАЛОГОВЫХ ОКОН ---
-    var showCheckpointPassedDialog by remember { mutableStateOf<QrResult.CheckpointPassed?>(null) }
-
-    var showQuestionDialog by remember { mutableStateOf<QrResult.QuestionFormat?>(null) }
-    var showInputDialog by remember { mutableStateOf<QrResult.InputFormat?>(null) }
+    var showLocationDialog by remember { mutableStateOf<QrResult.Checkpoint?>(null) }
+    var showQuestionDialog by remember { mutableStateOf<QrResult.Checkpoint?>(null) }
+    var showInputDialog by remember { mutableStateOf<QrResult.Checkpoint?>(null) }
     var showErrorDialog by remember { mutableStateOf<String?>(null) }
-    var inputTextValue by remember { mutableStateOf("") } // Текст внутри поля ввода показаний
+    var inputTextValue by remember { mutableStateOf("") }
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -78,6 +79,7 @@ fun OhrannikCabinetScreen(
             launcher.launch(Manifest.permission.CAMERA)
         }
     }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -98,7 +100,7 @@ fun OhrannikCabinetScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "Смена открыта в: $shiftStartTime",
+                text = "Смена открыта в: $currentTime",
                 fontSize = 16.sp,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(bottom = 16.dp)
@@ -111,18 +113,15 @@ fun OhrannikCabinetScreen(
                         .weight(1f)
                         .padding(bottom = 16.dp)
                 ) {
-                    // Контейнер для вывода картинки с камеры смартфона
                     AndroidView(
                         factory = { ctx ->
                             val previewView = PreviewView(ctx)
                             val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-
                             cameraProviderFuture.addListener({
                                 val cameraProvider = cameraProviderFuture.get()
                                 val preview = Preview.Builder().build().also {
                                     it.setSurfaceProvider(previewView.surfaceProvider)
                                 }
-
                                 val imageAnalysis = ImageAnalysis.Builder()
                                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                                     .build()
@@ -133,179 +132,77 @@ fun OhrannikCabinetScreen(
                                 val scanner = com.google.mlkit.vision.barcode.BarcodeScanning.getClient(options)
 
                                 imageAnalysis.setAnalyzer(Executors.newSingleThreadExecutor()) { imageProxy ->
-                                    if (isScanRequested) {
-                                        @Suppress("UnsafeOptInUsageError")
-                                        val mediaImage = imageProxy.image
-                                        if (mediaImage != null) {
-                                            val rotation = imageProxy.imageInfo.rotationDegrees
-                                            val image = com.google.mlkit.vision.common.InputImage.fromMediaImage(mediaImage, rotation)
-
-                                            // Получаем физические размеры кадра матрицы камеры
-                                            val imgWidth = imageProxy.width
-                                            val imgHeight = imageProxy.height
-
-                                            scanner.process(image)
-                                                .addOnSuccessListener { barcodes ->
-                                                    for (barcode in barcodes) {
-                                                        val rawValue = barcode.rawValue
-                                                        val bounds = barcode.boundingBox
-
-                                                        if (rawValue != null && bounds != null) {
-
-                                                            // 1. Вычисляем координаты центра QR-кода на матрице
-                                                            val qrCenterX = bounds.centerX().toFloat()
-                                                            val qrCenterY = bounds.centerY().toFloat()
-
-                                                            // 2. Определяем границы рамки прицела (центральные 30% от кадра)
-                                                            // Если камера повернута вертикально (90 или 270 град), меняем оси местами для корректности
-                                                            val isRotated = rotation == 90 || rotation == 270
-                                                            val frameWidth = if (isRotated) imgHeight else imgWidth
-                                                            val frameHeight = if (isRotated) imgWidth else imgHeight
-
-                                                            // Рассчитываем допустимый квадрат по центру кадра
-                                                            val minX = frameWidth * 0.35f
-                                                            val maxX = frameWidth * 0.65f
-                                                            val minY = frameHeight * 0.35f
-                                                            val maxY = frameHeight * 0.65f
-
-                                                            // 3. Проверка: попадает ли центр QR-кода в рассчитанную центральную область
-                                                            if (qrCenterX in minX..maxX && qrCenterY in minY..maxY) {
-
-                                                                // ТОЛЬКО ЕСЛИ КОД ВНУТРИ ПРИЦЕЛА — выполняем ваш оригинальный код:
-                                                                isScanRequested = false
-
-                                                                // Отправляем строку на разбор парсеру QrHandler
-                                                                val parsed = QrHandler.parseQrCode(rawValue)
-
-// --- НОВЫЙ БЛОК ОБРАБОТКИ РЕЗУЛЬТАТА ---
-                                                                when (parsed) {
-                                                                    // 1. УСПЕШНО ПРОЙДЕННЫЙ ЧЕКПОИНТ (Новый тип CheckpointPassed)
-                                                                    is QrResult.CheckpointPassed -> {
-                                                                        // Просто сохраняем результат в переменную состояния.
-                                                                        // Compose автоматически перерисует экран и покажет диалог,
-                                                                        // так как значение переменной изменилось с null на объект.
-
-                                                                        showCheckpointPassedDialog = parsed
-
-                                                                        // Сохраняем лог по старой схеме менеджера
-                                                                        val logText = "Метка локации: ${parsed.name} (Отметка пройдена)"
-                                                                        manager.saveScanResult(employeeName = employeeName, qrContent = logText)
-                                                                    }
-
-                                                                    // 2. ОШИБКА ПОСЛЕДОВАТЕЛЬНОСТИ (Новый тип SequenceError)
-                                                                    is QrResult.SequenceError -> {
-                                                                        // Показываем сообщение об ошибке
-                                                                        val errorMessage = if (parsed.expectedCheckpointId != null) {
-                                                                            "Ошибка! Нарушена последовательность обхода.\n" +
-                                                                                    "Ожидался чекпоинт с ID: ${parsed.expectedCheckpointId}"
-                                                                        } else {
-                                                                            "Ошибка! Вы пытаетесь пройти лишний чекпоинт или маршрут уже завершен."
-                                                                        }
-                                                                        showErrorDialog = "$errorMessage\n${parsed.message}"
-                                                                    }
-
-                                                                    // 3. ВОПРОС (Тип остался, но обрабатывается после новых проверок)
-                                                                    is QrResult.QuestionFormat -> {
-                                                                        showQuestionDialog = parsed
-                                                                    }
-
-                                                                    // 4. ВВОД ДАННЫХ (Тип остался, но обрабатывается после новых проверок)
-                                                                    is QrResult.InputFormat -> {
-                                                                        inputTextValue = ""
-                                                                        showInputDialog = parsed
-                                                                    }
-
-                                                                    // 5. ОТЧЕТ О СМЕНЕ (Тип остался)
-                                                                    is QrResult.ShiftReportTrigger -> {
-                                                                        // Логика генерации отчета...
-                                                                    }
-
-                                                                    // 6. ОБЩАЯ ОШИБКА ПАРСИНГА (Тип остался)
-                                                                    is QrResult.Error -> {
-                                                                        showErrorDialog = parsed.message
-                                                                    }
-                                                                }
-// -------------------------------------
-                                                                break // Прерываем цикл, так как нужный код найден и обработан
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                .addOnCompleteListener {
-                                                    // Обязательно закрываем imageProxy, чтобы камера не «застывала»
-                                                    imageProxy.close()
-                                                }
-                                        } else {
-                                            imageProxy.close()
-                                        }
-                                    } else {
-                                        imageProxy.close()
-                                    }
+                                    analyzeQrCode(
+                                        imageProxy = imageProxy,
+                                        scanner = scanner,
+                                        isScanRequested = isScanRequested,
+                                        currentTime = currentTime, // Убедитесь, что эта переменная определена выше!
+                                        manager = manager,
+                                        showLocationDialog = { parsed -> showLocationDialog = parsed },
+                                        showErrorDialog = { message -> showErrorDialog = message },
+                                        QrHandler = QrHandler // Передаем объект-одиночку
+                                    )
                                 }
-
-
                                 val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
                                 try {
                                     cameraProvider.unbindAll()
                                     cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, imageAnalysis)
-                                } catch (e: Exception) { e.printStackTrace() }
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
                             }, ContextCompat.getMainExecutor(ctx))
                             previewView
                         },
                         modifier = Modifier.fillMaxSize()
                     )
-
-                    // Рамка зеленого прицела по центру экрана
+                    // Рамка прицела по центру экрана
                     Box(
                         modifier = Modifier
                             .size(280.dp, 280.dp)
                             .align(Alignment.Center)
                             .border(BorderStroke(3.dp, Color.Green), RoundedCornerShape(16.dp))
                     )
-
-                    // Кнопка под рамкой
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 48.dp),
-                        contentAlignment = Alignment.Center
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.CenterHorizontally)
+                        .padding(bottom = 48.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Button(
+                        onClick = { isScanRequested = true },
+                        modifier = Modifier.width(200.dp).height(56.dp),
+                        shape = RoundedCornerShape(28.dp)
                     ) {
-                        Button(
-                            onClick = { isScanRequested = true },
-                            modifier = Modifier.width(200.dp).height(56.dp),
-                            shape = RoundedCornerShape(28.dp)
-                        ) {
-                            Text(text = "Сканировать", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        }
+                        Text(text = "Сканировать", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     }
                 }
             }
         }
     }
+
+
     // ================= РЕНДЕРИНГ ДИАЛОГОВЫХ ОКОН =================
 
-    // 1. Диалог для обычной метки локации
-    // --- РЕНДЕРИНГ ДИАЛОГА ОБ УСПЕШНОМ ПРОХОЖДЕНИИ ---
-    showCheckpointPassedDialog?.let { result ->
+    // 1. Диалог для обычной метки локации (простой чекпоинт)
+    showLocationDialog?.let { result ->
         AlertDialog(
-            onDismissRequest = { showCheckpointPassedDialog = null }, // Закрываем при клике вне окна или назад
+            onDismissRequest = { showLocationDialog = null },
             title = { Text("Точка зафиксирована") },
-            text = {
-                Column {
-                    Text("Локация: ${result.name}")
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("ID: ${result.checkpointId}")
-                    Text("Время: ${result.timestamp}")
-                }
-            },
+            text = { Text("Локация: ${result.name}\nВремя: $currentTime") },
             confirmButton = {
-                Button(onClick = { showCheckpointPassedDialog = null }) { Text("ОК") }
+                Button(onClick = {
+                    // Диалог просто закрывается, данные уже сохранены при сканировании.
+                    showLocationDialog = null
+                }) { Text("ОК") }
             }
         )
     }
 
-    // 2. Диалог с ВОПРОСОМ и кнопками вариантов ответов
+
+    // 2. Диалог с ВОПРОСОМ и кнопками вариантов ответов (обновлен!)
     showQuestionDialog?.let { result ->
         AlertDialog(
             onDismissRequest = { showQuestionDialog = null },
@@ -313,16 +210,24 @@ fun OhrannikCabinetScreen(
             text = {
                 Column {
                     Text(
-                        text = result.text,
+                        text = result.text ?: "Вопрос",
                         modifier = Modifier.padding(bottom = 12.dp),
                         fontWeight = FontWeight.Medium
                     )
-                    result.answers.forEach { answer ->
+                    result.answers?.forEach { answer ->
                         Button(
                             onClick = {
-                                val logText = "Чек-лист: ${result.text} -> Ответ: $answer"
-                                manager.saveScanResult(employeeName = employeeName, qrContent = logText)
-                                showQuestionDialog = null
+                                // --- НОВАЯ ЛОГИКА СОХРАНЕНИЯ ОТВЕТА ---
+                                val entryWithAnswer = CheckpointEntry(
+                                    id = result.id,
+                                    type = "Чек-лист",
+                                    titleOrLocation = result.name,
+                                    userResult = answer, // Сохраняем выбранный ответ!
+                                    timestamp = currentTime,
+                                    photoPath = null // Фото не требуется для этого типа
+                                )
+                                QrHandler.saveUserResponse(entryWithAnswer)
+                                showQuestionDialog = null // Закрываем диалог после выбора ответа.
                             },
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             colors = ButtonDefaults.buttonColors(
@@ -333,65 +238,135 @@ fun OhrannikCabinetScreen(
                     }
                 }
             },
-            confirmButton = {} // Кнопки подтверждения не нужны, клик по варианту сам закроет окно
+            confirmButton = {} // Кнопки подтверждения не нужны, клик по варианту сам закроет окно.
         )
     }
 
-    // 3. Диалог для ВВОДА ДАННЫХ (Показания счетчиков и т.д.)
+
+    // 3. Диалог для ВВОДА ДАННЫХ (обновлен!)
     showInputDialog?.let { result ->
         AlertDialog(
-            onDismissRequest = { showInputDialog = null },
+            onDismissRequest = {
+                inputTextValue = "" // Очищаем поле при отмене или закрытии.
+                showInputDialog = null
+            },
             title = { Text("Ввод данных") },
             text = {
                 Column {
-                    Text(text = result.title, modifier = Modifier.padding(bottom = 8.dp))
+                    Text(text = result.text ?: "Введите данные", modifier= Modifier.padding(bottom=8.dp))
                     OutlinedTextField(
                         value = inputTextValue,
-                        onValueChange = { inputTextValue = it },
-                        label = { Text("Введите показания") },
-                        modifier = Modifier.fillMaxWidth()
+                        onValueChange = { inputTextValue= it },
+                        label= { Text(result.placeholder ?: "Введите показания") },
+                        modifier= Modifier.fillMaxWidth()
                     )
                 }
             },
-            confirmButton = {
+            confirmButton= {
                 Button(
-                    onClick = {
+                    onClick= {
                         if (inputTextValue.isNotBlank()) {
-                            val logText = "Показания: ${result.title} -> Введено: $inputTextValue"
-                            manager.saveScanResult(employeeName = employeeName, qrContent = logText)
+                            // --- НОВАЯ ЛОГИКА СОХРАНЕНИЯ ВВЕДЕННЫХ ДАННЫХ ---
+                            val entryWithInput= CheckpointEntry(
+                                id= result.id,
+                                type= "Показания",
+                                titleOrLocation= result.name,
+                                userResult= inputTextValue, // Сохраняем введенный текст!
+                                timestamp= currentTime,
+                                photoPath= null // Фото не требуется для этого типа (пока)
+                            )
+                            QrHandler.saveUserResponse(entryWithInput)
 
-                            inputTextValue = "" // ОЧИСТКА ПОЛЯ: Сбрасываем текст, чтобы поле было пустым в следующий раз
-                            showInputDialog = null
+                            inputTextValue= "" // Очищаем поле.
+                            showInputDialog= null // Закрываем диалог.
                         }
                     }
                 ) { Text("Сохранить") }
             },
-            dismissButton = {
-                TextButton(onClick = {
-                    inputTextValue = "" // Очищаем поле при отмене
-                    showInputDialog = null
+            dismissButton= {
+                TextButton(onClick= {
+                    inputTextValue= "" // Очищаем поле.
+                    showInputDialog= null
                 }) { Text("Отмена") }
             }
         )
     }
 
-    // 4. Диалог ошибки парсинга/сканирования
+
+    // 4. Диалог ошибки парсинга/сканирования (без изменений)
     showErrorDialog?.let { message ->
         AlertDialog(
-            onDismissRequest = { showErrorDialog = null },
-            title = { Text("Ошибка сканирования") },
-            text = { Text(message) },
-            confirmButton = { Button(onClick = { showErrorDialog = null }) { Text("ОК") } }
+            onDismissRequest= { showErrorDialog= null },
+            title= { Text("Ошибка сканирования") },
+            text= { Text(message) },
+            confirmButton= { Button(onClick= { showErrorDialog= null }) { Text("ОК") } }
         )
     }
-}
 
-// Вспомогательная заглушка, чтобы не ломать вызовы в других частях проекта
-@Composable
-fun CameraScannerScreen(
-    onScanRecognized: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    onPreviewViewCreated: (PreviewView) -> Unit
+    }
+
+@androidx.annotation.OptIn(ExperimentalGetImage::class)
+@OptIn(ExperimentalGetImage::class)
+private fun analyzeQrCode(
+    imageProxy: ImageProxy,
+    scanner: BarcodeScanner,
+    isScanRequested: Boolean,
+    currentTime: String,
+    manager: SharedPrefsManager,
+    showLocationDialog: (QrResult.Checkpoint?) -> Unit,
+    showErrorDialog: (String?) -> Unit,
+    QrHandler: QrHandler
 ) {
-    Box(modifier = modifier.fillMaxSize())
+    if (isScanRequested) {
+        val mediaImage = imageProxy.image
+        if (mediaImage != null) {
+            val rotation = imageProxy.imageInfo.rotationDegrees
+            val image =
+                com.google.mlkit.vision.common.InputImage.fromMediaImage(mediaImage, rotation)
+
+            scanner.process(image)
+                .addOnSuccessListener { barcodes ->
+                    for (barcode in barcodes) {
+                        val rawValue = barcode.rawValue
+                        if (rawValue != null) {
+                            // isScanRequested = false // Решите, где вам лучше сбрасывать флаг
+
+                            val parsed = QrHandler.parseQrCode(rawValue)
+                            when (parsed) {
+                                is QrResult.Checkpoint -> {
+                                    val entry = CheckpointEntry(
+                                        id = parsed.id,
+                                        type = "Метка локации",
+                                        titleOrLocation = parsed.name,
+                                        userResult = null,
+                                        timestamp = currentTime
+                                    )
+                                    QrHandler.saveUserResponse(entry)
+                                    showLocationDialog(parsed)
+                                }
+
+                                is QrResult.ShiftReportTrigger -> {
+                                    val logs = manager.getScanLogs()
+                                    if (logs.isNotEmpty()) {
+                                        // ... ваша логика ...
+                                    }
+                                }
+
+                                is QrResult.Error -> {
+                                    showErrorDialog(parsed.message)
+                                }
+                            }
+                            break
+                        }
+                    }
+                }
+                .addOnCompleteListener {
+                    imageProxy.close()
+                }
+        } else {
+            imageProxy.close()
+        }
+    } else {
+        imageProxy.close()
+    }
 }
