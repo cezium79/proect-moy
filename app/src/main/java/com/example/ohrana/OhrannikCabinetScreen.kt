@@ -1,5 +1,6 @@
 package com.example.ohrana
 
+import android.app.Activity
 import android.Manifest
 import android.content.pm.PackageManager
 import android.util.Size
@@ -138,9 +139,29 @@ fun OhrannikCabinetScreen(
                                         isScanRequested = isScanRequested,
                                         currentTime = currentTime, // Убедитесь, что эта переменная определена выше!
                                         manager = manager,
-                                        showLocationDialog = { parsed -> showLocationDialog = parsed },
-                                        showErrorDialog = { message -> showErrorDialog = message },
-                                        QrHandler = QrHandler // Передаем объект-одиночку
+                                        showLocationDialog = { parsed ->
+                                            (context as? Activity)?.runOnUiThread {
+                                                // СРАЗУ ОТКЛЮЧАЕМ АНАЛИЗАТОР КАМЕРЫ, чтобы прекратить поток кадров
+                                                imageAnalysis.clearAnalyzer()
+
+                                                when (parsed.type) {
+                                                    "Чек-лист" -> showQuestionDialog = parsed
+                                                    "Показания" -> showInputDialog = parsed
+                                                    else -> showLocationDialog = parsed
+                                                }
+                                                isScanRequested = false // Сбрасываем флаг для Compose
+                                            }
+                                        },
+                                        showErrorDialog = { message ->
+                                            (context as? Activity)?.runOnUiThread {
+                                                // При ошибке тоже отключаем, чтобы не спамить диалогами ошибок
+                                                imageAnalysis.clearAnalyzer()
+
+                                                showErrorDialog = message
+                                                isScanRequested = false
+                                            }
+                                        },
+                                        QrHandler = QrHandler
                                     )
                                 }
                                 val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
@@ -171,9 +192,9 @@ fun OhrannikCabinetScreen(
                         .padding(bottom = 48.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Button(
+                   Button(
                         onClick = { isScanRequested = true },
-                        modifier = Modifier.width(200.dp).height(56.dp),
+                         modifier = Modifier.width(200.dp).height(56.dp),
                         shape = RoundedCornerShape(28.dp)
                     ) {
                         Text(text = "Сканировать", fontWeight = FontWeight.Bold, fontSize = 16.sp)
@@ -191,18 +212,15 @@ fun OhrannikCabinetScreen(
         AlertDialog(
             onDismissRequest = { showLocationDialog = null },
             title = { Text("Точка зафиксирована") },
-            text = { Text("Локация: ${result.name}\nВремя: $currentTime") },
+            // Добавлен безопасный вызов ?.name
+            text = { Text("Локация: ${result?.name}\nВремя: $currentTime") },
             confirmButton = {
-                Button(onClick = {
-                    // Диалог просто закрывается, данные уже сохранены при сканировании.
-                    showLocationDialog = null
-                }) { Text("ОК") }
+                Button(onClick = { showLocationDialog = null }) { Text("ОК") }
             }
         )
     }
 
-
-    // 2. Диалог с ВОПРОСОМ и кнопками вариантов ответов (обновлен!)
+    // 2. Диалог с ВОПРОСОМ и кнопками вариантов ответов
     showQuestionDialog?.let { result ->
         AlertDialog(
             onDismissRequest = { showQuestionDialog = null },
@@ -210,24 +228,25 @@ fun OhrannikCabinetScreen(
             text = {
                 Column {
                     Text(
-                        text = result.text ?: "Вопрос",
+                        // Добавлен безопасный вызов ?.text
+                        text = result?.text ?: "Вопрос",
                         modifier = Modifier.padding(bottom = 12.dp),
                         fontWeight = FontWeight.Medium
                     )
-                    result.answers?.forEach { answer ->
+                    // Безопасный вызов ?.answers и оператор Элвиса на случай null
+                    (result?.answers ?: emptyList()).forEach { answer ->
                         Button(
                             onClick = {
-                                // --- НОВАЯ ЛОГИКА СОХРАНЕНИЯ ОТВЕТА ---
                                 val entryWithAnswer = CheckpointEntry(
-                                    id = result.id,
+                                    id = result?.id ?: "", // Безопасный вызов ?.id
                                     type = "Чек-лист",
-                                    titleOrLocation = result.name,
-                                    userResult = answer, // Сохраняем выбранный ответ!
+                                    titleOrLocation = result?.name ?: "", // Безопасный вызов ?.name
+                                    userResult = answer,
                                     timestamp = currentTime,
-                                    photoPath = null // Фото не требуется для этого типа
+                                    photoPath = null
                                 )
                                 QrHandler.saveUserResponse(entryWithAnswer)
-                                showQuestionDialog = null // Закрываем диалог после выбора ответа.
+                                showQuestionDialog = null
                             },
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             colors = ButtonDefaults.buttonColors(
@@ -238,59 +257,59 @@ fun OhrannikCabinetScreen(
                     }
                 }
             },
-            confirmButton = {} // Кнопки подтверждения не нужны, клик по варианту сам закроет окно.
+            confirmButton = {}
         )
     }
 
-
-    // 3. Диалог для ВВОДА ДАННЫХ (обновлен!)
+    // 3. Диалог для ВВОДA ДАННЫХ
     showInputDialog?.let { result ->
         AlertDialog(
             onDismissRequest = {
-                inputTextValue = "" // Очищаем поле при отмене или закрытии.
+                inputTextValue = ""
                 showInputDialog = null
             },
             title = { Text("Ввод данных") },
             text = {
                 Column {
-                    Text(text = result.text ?: "Введите данные", modifier= Modifier.padding(bottom=8.dp))
+                    // Добавлен безопасный вызов ?.text
+                    Text(text = result?.text ?: "Введите данные", modifier = Modifier.padding(bottom = 8.dp))
                     OutlinedTextField(
                         value = inputTextValue,
-                        onValueChange = { inputTextValue= it },
-                        label= { Text(result.placeholder ?: "Введите показания") },
-                        modifier= Modifier.fillMaxWidth()
+                        onValueChange = { inputTextValue = it },
+                        // Добавлен безопасный вызов ?.placeholder
+                        label = { Text(result?.placeholder ?: "Введите показания") },
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             },
-            confirmButton= {
+            confirmButton = {
                 Button(
-                    onClick= {
+                    onClick = {
                         if (inputTextValue.isNotBlank()) {
-                            // --- НОВАЯ ЛОГИКА СОХРАНЕНИЯ ВВЕДЕННЫХ ДАННЫХ ---
-                            val entryWithInput= CheckpointEntry(
-                                id= result.id,
-                                type= "Показания",
-                                titleOrLocation= result.name,
-                                userResult= inputTextValue, // Сохраняем введенный текст!
-                                timestamp= currentTime,
-                                photoPath= null // Фото не требуется для этого типа (пока)
+                            val entryWithInput = CheckpointEntry(
+                                id = result?.id ?: "", // Безопасный вызов ?.id
+                                type = "Показания",
+                                titleOrLocation = result?.name ?: "", // Безопасный вызов ?.name
+                                userResult = inputTextValue,
+                                timestamp = currentTime,
+                                photoPath = null
                             )
                             QrHandler.saveUserResponse(entryWithInput)
-
-                            inputTextValue= "" // Очищаем поле.
-                            showInputDialog= null // Закрываем диалог.
+                            inputTextValue = ""
+                            showInputDialog = null
                         }
                     }
                 ) { Text("Сохранить") }
             },
-            dismissButton= {
-                TextButton(onClick= {
-                    inputTextValue= "" // Очищаем поле.
-                    showInputDialog= null
+            dismissButton = {
+                TextButton(onClick = {
+                    inputTextValue = ""
+                    showInputDialog = null
                 }) { Text("Отмена") }
             }
         )
     }
+
 
 
     // 4. Диалог ошибки парсинга/сканирования (без изменений)
@@ -317,6 +336,10 @@ private fun analyzeQrCode(
     showErrorDialog: (String?) -> Unit,
     QrHandler: QrHandler
 ) {
+    if (!isScanRequested) {
+        imageProxy.close()
+        return
+    }
     if (isScanRequested) {
         val mediaImage = imageProxy.image
         if (mediaImage != null) {
