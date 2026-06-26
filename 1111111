@@ -1,5 +1,3 @@
-package com.example.ohrana
-
 Серийный номер тома: 0931-160B
 H:.
 |   .gitignore
@@ -1713,59 +1711,59 @@ H:.
 |   \---modules
 |       \---app
 \---build
-\---reports
-+---configuration-cache
-|   +---2r4by892ng6ref8eceujwucsc
-|   |   +---dbb8lzkfiqzf8pobudfq4v0v4
-|   |   |       configuration-cache-report.html
-|   |   |
-|   |   +---8bdm8vqjylwgao27nlww9xuao
-|   |   |       configuration-cache-report.html
-|   |   |
-|   |   +---4tamuee4d8m2qs0iilon4vq77
-|   |   |       configuration-cache-report.html
-|   |   |
-|   |   +---ahjojzqbrgs1rbnhyqvz1nsm
-|   |   |       configuration-cache-report.html
-|   |   |
-|   |   +---e95r03e7zdlooeds577r1a2sb
-|   |   |       configuration-cache-report.html
-|   |   |
-|   |   +---zji7mx4cp41xdhkqruqux74m
-|   |   |       configuration-cache-report.html
-|   |   |
-|   |   \---3eqffy657qtuf983maqyjzlrs
-|   |           configuration-cache-report.html
-|   |
-|   +---75v7kb0q1oxe3jnpy1m8kmf7x
-|   |   +---7nxuuq3hh1mky25rpyejgiiv4
-|   |   |       configuration-cache-report.html
-|   |   |
-|   |   \---8v8tfwgbdqnswac7dkgaa3c8q
-|   |           configuration-cache-report.html
-|   |
-|   +---7qygorxtrgflljewt5k14sgfb
-|   |   \---8k79stfhjdkkdmss8bxg1iyvv
-|   |           configuration-cache-report.html
-|   |
-|   +---5rasm1osc55hqy722typsaq81
-|   |   +---3qnv3x9sqwk23r4n3ja4cqlch
-|   |   |       configuration-cache-report.html
-|   |   |
-|   |   \---618kvntrgraw2xcysxbef3s2s
-|   |           configuration-cache-report.html
-|   |
-|   +---4iz1et2agv3ungpnsujvur58k
-|   |   \---8pcwirx8t1oow2yhmx3lcjzi2
-|   |           configuration-cache-report.html
-|   |
-|   +---ajoe4hg2nr3jr4gud230f4dg5
-|   |   \---7o1ty73oypds9qf3mmpe7buqy
-|   |           configuration-cache-report.html
-|   |
-|   \---5sdw9u7pkrzx25rmnsdtu4hai
-|       \---bneranjw5ykvf5z8uzwy5hofx
-|               configuration-cache-report.html
-|
-\---problems
-problems-report.html
+    \---reports
+        +---configuration-cache
+        |   +---2r4by892ng6ref8eceujwucsc
+        |   |   +---dbb8lzkfiqzf8pobudfq4v0v4
+        |   |   |       configuration-cache-report.html
+        |   |   |
+        |   |   +---8bdm8vqjylwgao27nlww9xuao
+        |   |   |       configuration-cache-report.html
+        |   |   |
+        |   |   +---4tamuee4d8m2qs0iilon4vq77
+        |   |   |       configuration-cache-report.html
+        |   |   |
+        |   |   +---ahjojzqbrgs1rbnhyqvz1nsm
+        |   |   |       configuration-cache-report.html
+        |   |   |
+        |   |   +---e95r03e7zdlooeds577r1a2sb
+        |   |   |       configuration-cache-report.html
+        |   |   |
+        |   |   +---zji7mx4cp41xdhkqruqux74m
+        |   |   |       configuration-cache-report.html
+        |   |   |
+        |   |   \---3eqffy657qtuf983maqyjzlrs
+        |   |           configuration-cache-report.html
+        |   |
+        |   +---75v7kb0q1oxe3jnpy1m8kmf7x
+        |   |   +---7nxuuq3hh1mky25rpyejgiiv4
+        |   |   |       configuration-cache-report.html
+        |   |   |
+        |   |   \---8v8tfwgbdqnswac7dkgaa3c8q
+        |   |           configuration-cache-report.html
+        |   |
+        |   +---7qygorxtrgflljewt5k14sgfb
+        |   |   \---8k79stfhjdkkdmss8bxg1iyvv
+        |   |           configuration-cache-report.html
+        |   |
+        |   +---5rasm1osc55hqy722typsaq81
+        |   |   +---3qnv3x9sqwk23r4n3ja4cqlch
+        |   |   |       configuration-cache-report.html
+        |   |   |
+        |   |   \---618kvntrgraw2xcysxbef3s2s
+        |   |           configuration-cache-report.html
+        |   |
+        |   +---4iz1et2agv3ungpnsujvur58k
+        |   |   \---8pcwirx8t1oow2yhmx3lcjzi2
+        |   |           configuration-cache-report.html
+        |   |
+        |   +---ajoe4hg2nr3jr4gud230f4dg5
+        |   |   \---7o1ty73oypds9qf3mmpe7buqy
+        |   |           configuration-cache-report.html
+        |   |
+        |   \---5sdw9u7pkrzx25rmnsdtu4hai
+        |       \---bneranjw5ykvf5z8uzwy5hofx
+        |               configuration-cache-report.html
+        |
+        \---problems
+                problems-report.html
